@@ -35,6 +35,9 @@ import java.util.logging.Logger;
  * <li>inf-20100313 -> inf-20100316 (also 227 -> 316): the same chunk files with light and metadata, and the terrain
  *     generator of 316 has the same code as that of 313, so the same seed gives the same land: land generated after
  *     the conversion fits the converted part.</li>
+ * <li>inf-20100316 -> inf-20100320 (also 313 and 227 -> 320): the same chunk files. The generator of 320 adds trees and ores:
+ *     the chunks that are taken over keep what they have (they count as populated), and land made after the takeover
+ *     is generated with the new terrain, so it differs from the converted land at its edges.</li>
  * </ul>
  * A new build is added with one more case in {@link #supportsStep}, and the bridge of the build converts the chunk it
  * reads from the old folder. What cannot be carried over: the terrain generators of the builds differ, so land
@@ -105,6 +108,13 @@ public final class WorldConverter {
 
     /** Whether a chunk of the older build can be used by the newer one. */
     public static boolean supportsStep(GameVersion from, GameVersion to) {
+        if (to == GameVersion.INF_20100320) {
+            // 316 -> 320 (and 313, 227 -> 320): the same chunk files. The terrain generator of 320 adds trees and ores, so land
+            // made after the takeover differs from the converted land at its edges; the chunks that are taken over are
+            // not changed (they count as populated).
+            return from == GameVersion.INF_20100316 || from == GameVersion.INF_20100313
+                    || from == GameVersion.INF_20100227_1433;
+        }
         if (to == GameVersion.INF_20100316) {
             // 20100313 -> 20100316: the same chunk files and the same terrain generator (checked in the jars): a world of
             // 20100227 is taken over into 20100316 the same way (its chunks have no light, the bridge works it out)

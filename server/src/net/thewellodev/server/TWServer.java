@@ -77,7 +77,7 @@ import java.util.logging.Logger;
 public class TWServer implements Server {
 
     public static final String NAME = "TheWello's Infdev Server";
-    public static final String VERSION = "2.0.0";
+    public static final String VERSION = "2.1.0";
 
     private final Logger logger;
     private final File dir;
@@ -305,6 +305,12 @@ public class TWServer implements Server {
             net.thewellodev.server.api313.Server313Impl view = new net.thewellodev.server.api313.Server313Impl(this);
             net.thewellodev.api313.TheWello313.setServer(view);
             pluginManager.setTranslator(new net.thewellodev.server.api313.Events313(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100320) {
+            // this build has its own plugin API too (net.thewellodev.api320)
+            net.thewellodev.server.api320.Server320Impl view = new net.thewellodev.server.api320.Server320Impl(this);
+            net.thewellodev.api320.TheWello320.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api320.Events320(pluginManager, view.api()));
         }
         if (gameVersion == GameVersion.INF_20100316) {
             // this build has its own plugin API too (net.thewellodev.api316)
@@ -665,6 +671,9 @@ public class TWServer implements Server {
         scheduler.tick();
         if (tickCount % 20 == 0) {
             sweepLocks();
+            if (sharesDrops()) {
+                mobAuthorityTick();
+            }
         }
         // 6) Send block changes
         flushBlockChanges();
@@ -886,9 +895,14 @@ public class TWServer implements Server {
         if (p.gameMode != 0) {
             c.sendGameMode(p.gameMode);
         }
+        if (sharesDrops()) {
+            p.dropSlot = allocateSlot(p);
+            p.dropSeqStart = 1 + new java.util.Random().nextInt(0xFFFF00);
+            c.sendSlot(p.dropSlot, p.dropSeqStart);
+        }
         if (gameVersion != null && gameVersion.protocol != Protocol.VERSION) {
             int[] saved = p.savedInv;
-            c.sendInventorySync(saved == null ? new int[0] : saved);
+            c.sendInventorySync(saved == null ? new int[0] : filterInventory(saved));
         }
         logger.info(name + " [" + c.getAddressString() + "] joined (id " + p.getEntityId() + ") at "
                 + String.format("%.1f %.1f %.1f", p.x, p.y, p.z));
@@ -914,6 +928,9 @@ public class TWServer implements Server {
             }
         }
         logger.info(p.getName() + " left: " + reason);
+        if (sharesDrops() && p.joined) {
+            transferMobs(p);
+        }
         if (announce) {
             PlayerQuitEvent qe = pluginManager.callEvent(new PlayerQuitEvent(p, "&e" + p.getName() + " left the game."));
             if (qe.getQuitMessage() != null) {
@@ -1012,6 +1029,21 @@ public class TWServer implements Server {
                     break;
                 case Protocol.DROP_REMOVE:
                     handleDropRemove(p, in);
+                    break;
+                case Protocol.EXPLOSION:
+                    handleExplosion(p, in.yaw, in.x, in.y, in.z);
+                    break;
+                case Protocol.MOB_STATE:
+                    handleMobState(p, in);
+                    break;
+                case Protocol.MOB_REMOVE:
+                    handleMobRemove(p, in);
+                    break;
+                case Protocol.MOB_HIT:
+                    handleMobHit(p, in);
+                    break;
+                case Protocol.DROP_CLAIM:
+                    handleDropClaim(p, in.i1);
                     break;
                 case Protocol.DEATH:
                     handleDeath(p);
@@ -1166,7 +1198,7 @@ public class TWServer implements Server {
         // An invalid block id can crash other clients; the rate limit prevents world-edit spam
         boolean invalid = id != 0 && (id >= 256 || !bridge.isValidItem(id));
         boolean forbidden = !p.isOp() && (restrictedPlace(id) || (oldId == 7 && p.gameMode == 0));
-        if (invalid || forbidden || !p.allow("block", 40) || p.dead) {
+        if (invalid || forbidden || !(takeBurst(p, x, y, z, id) || p.allow("block", 40)) || p.dead) {
             p.getConnection().sendBlockChange(x, y, z, oldId, oldMeta);
             if (invalid) {
                 flagViolation(p, "invalid block id " + id);
@@ -1179,6 +1211,14 @@ public class TWServer implements Server {
             protectedSpawn = Math.max(Math.abs(x - sp[0]), Math.abs(z - sp[2])) <= spawnProtection;
         }
         boolean cancel = protectedSpawn;
+        if (!cancel && bridge.isLockableBlock(x, y, z)) {
+            String holder = tileLocks.get(lockKey(x, y, z));
+            TWPlayer h = holder == null ? null : players.get(holder.toLowerCase(java.util.Locale.ENGLISH));
+            if (holder != null && !holder.equalsIgnoreCase(p.getName()) && h != null && h.joined) {
+                p.sendMessage("&cThis chest/furnace is in use by another player (" + holder + ").");
+                cancel = true; // the player gets the block back below
+            }
+        }
         if (!cancel) {
             TWBlock b = new TWBlock(world, x, y, z);
             if (id == 0) {
@@ -1655,7 +1695,8 @@ public class TWServer implements Server {
     }
 
     private void handleTile(TWPlayer p, PlayerConnection.InPacket in) {
-        if (!p.allow("tile", 10) || p.dead) {
+        if (!p.allow("tile", 10) || p.dead || in.i2 < 0 || in.i2 >= 128 || !p.hasChunk(in.i1 >> 4, in.i3 >> 4)
+                || !near(p, in.i1 + 0.5, in.i2 + 0.5, in.i3 + 0.5, 16)) {
             return;
         }
         if (bridge.isLockableBlock(in.i1, in.i2, in.i3)) {
@@ -1971,37 +2012,303 @@ public class TWServer implements Server {
      * player keeps the inventory when the server moves to another build; players who were never saved start with the
      * build's default.
      */
-    private static int dropNumber(TWPlayer p, int seq) {
-        return ((p.getEntityId() & 0x7FF) << 20) | (seq & 0xFFFFF);
+    /** A slot (11 bits) that no player on the server has: the top bits of the numbers of his items and mobs. */
+    private int allocateSlot(TWPlayer p) {
+        boolean[] used = new boolean[2048];
+        for (TWPlayer q : players.values()) {
+            if (q != p && q.dropSlot >= 0) {
+                used[q.dropSlot] = true;
+            }
+        }
+        int start = new java.util.Random().nextInt(2048);
+        for (int i = 0; i < 2048; i++) {
+            int slot = (start + i) & 0x7FF;
+            if (!used[slot]) {
+                return slot;
+            }
+        }
+        return start;
+    }
+
+    /** Builds whose clients run their own item entities and pass them on through the server. */
+    private boolean sharesDrops() {
+        return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320;
+    }
+
+    /** Who picked up which shared item (number to slot): the first one asked gets it. */
+    private final java.util.Map<Integer, Integer> dropClaims = new java.util.LinkedHashMap<Integer, Integer>() {
+        protected boolean removeEldestEntry(java.util.Map.Entry<Integer, Integer> eldest) {
+            return size() > 4000;
+        }
+    };
+
+    /** A mob that an arrow made, as the server knows it: who runs it and where it was last. */
+    private static final class MobInfo {
+        int number, kind, hurt, death, fireAndHealth;
+        String owner;
+        double x, y, z;
+        float yaw, pitch, body, limbAmount, limbPosition;
+        long handedOverAt;
+    }
+
+    private final java.util.Map<Integer, MobInfo> mobRegistry = new java.util.HashMap<Integer, MobInfo>();
+
+    private static boolean validNumber(TWPlayer p, int number) {
+        return p.dropSlot >= 0 && (number >>> 20) == p.dropSlot && (number & 0xFFFFF) != 0;
     }
 
     /**
-     * Build 316: the game of each player runs its own items (blocks drop, items can be thrown). The server only passes
+     * Builds 316 and 320: the game of each player runs its own items (blocks drop, items can be thrown). The server passes
      * them on, so that every player sees the items of the others.
      */
     private void handleDropSpawn(TWPlayer p, PlayerConnection.InPacket in) {
-        if (gameVersion != GameVersion.INF_20100316 || !p.allow("dropspawn", 40) || in.i2 <= 0 || in.i2 > 2000
-                || in.i3 <= 0 || in.i3 > 999) {
+        if (!sharesDrops() || !p.allow("dropspawn", 120) || !validNumber(p, in.i1) || in.i2 <= 0 || in.i2 > 2000
+                || !bridge.isValidItem(in.i2) || in.i3 <= 0 || in.i3 > 999 || !isFinite(in.x) || !isFinite(in.y)
+                || !isFinite(in.z) || !isFinite(in.mx) || !isFinite(in.my) || !isFinite(in.mz)
+                || !near(p, in.x, in.y, in.z, 128) || Math.abs(in.mx) > 10 || Math.abs(in.my) > 10
+                || Math.abs(in.mz) > 10) {
             return;
         }
         double[] v = {in.x, in.y, in.z, in.mx, in.my, in.mz};
         for (TWPlayer q : players.values()) {
-            if (q != p) {
-                q.getConnection().sendDropSpawn(dropNumber(p, in.i1), in.i2, in.i3, in.i4, v);
+            if (q != p && near(q, in.x, in.y, in.z, 160)) {
+                q.getConnection().sendDropSpawn(in.i1, in.i2, in.i3, in.i4, v);
             }
         }
     }
 
+    /** An item is gone: the one who dropped it, or the one who got it, says so. */
     private void handleDropRemove(TWPlayer p, PlayerConnection.InPacket in) {
-        if (gameVersion != GameVersion.INF_20100316 || !p.allow("dropremove", 80)) {
+        if (!sharesDrops() || !p.allow("dropremove", 120)) {
             return;
         }
-        int number = in.i2 == 1 ? dropNumber(p, in.i1) : in.i1;
+        int number = in.i1;
+        Integer claimer = dropClaims.get(number);
+        if (!(p.dropSlot >= 0 && (number >>> 20) == p.dropSlot) && (claimer == null || claimer != p.dropSlot)) {
+            return;
+        }
+        dropClaims.remove(number);
         for (TWPlayer q : players.values()) {
             if (q != p) {
                 q.getConnection().sendDropRemove(number);
             }
         }
+    }
+
+    /** The first player who asks for an item gets it; the others lose their copy at once. */
+    private void handleDropClaim(TWPlayer p, int number) {
+        if (!sharesDrops() || !p.allow("dropclaim", 60) || p.dropSlot < 0) {
+            return;
+        }
+        Integer cur = dropClaims.get(number);
+        boolean ok = cur == null || cur == p.dropSlot;
+        if (ok && cur == null) {
+            dropClaims.put(number, p.dropSlot);
+            for (TWPlayer q : players.values()) {
+                if (q != p) {
+                    q.getConnection().sendDropRemove(number);
+                }
+            }
+        }
+        p.getConnection().sendDropClaimResult(number, ok);
+    }
+
+    /**
+     * Build 320: an explosion in the player's game destroys hundreds of blocks in one tick. The block changes arrive in a
+     * burst; the player may send as many as the explosion can destroy (and only for a moment), above the normal rate.
+     */
+    private void handleExplosion(TWPlayer p, float power, double x, double y, double z) {
+        if (gameVersion != GameVersion.INF_20100320 || !p.allow("explosion", 2) || p.dead
+                || !(power > 0f) || power > 8f || !isFinite(x) || !isFinite(y) || !isFinite(z)
+                || !near(p, x, y, z, 64)) {
+            return;
+        }
+        p.blockBurst = Math.min(3000, (int) (power * power * power * 8 + 100));
+        p.blockBurstUntil = tickCount + 60;
+        p.burstX = x;
+        p.burstY = y;
+        p.burstZ = z;
+        p.burstRadius = power * 2.0 + 2.0;
+    }
+
+    private static boolean isFinite(double d) {
+        return !Double.isNaN(d) && !Double.isInfinite(d);
+    }
+
+    /** A removal of a block inside the blast of the player's last explosion may exceed the normal rate. */
+    private boolean takeBurst(TWPlayer p, int x, int y, int z, int id) {
+        if (id != 0 || p.blockBurst <= 0 || tickCount > p.blockBurstUntil) {
+            return false;
+        }
+        double dx = x + 0.5 - p.burstX, dy = y + 0.5 - p.burstY, dz = z + 0.5 - p.burstZ;
+        if (dx * dx + dy * dy + dz * dz > p.burstRadius * p.burstRadius) {
+            return false;
+        }
+        p.blockBurst--;
+        return true;
+    }
+
+    /**
+     * The mobs that an arrow makes live in the game of the player who shot it; the server passes them on to the players
+     * near them, and remembers where each one is, so that another player can take it over when its owner leaves.
+     */
+    private void handleMobState(TWPlayer p, PlayerConnection.InPacket in) {
+        if (!sharesDrops() || !p.allow("mobstate", 400) || in.i2 > 5 || !isFinite(in.x) || !isFinite(in.y)
+                || !isFinite(in.z) || Math.abs(in.x) > 3.2e7 || Math.abs(in.z) > 3.2e7 || in.y < -64 || in.y > 256
+                || !isFinite(in.mx) || !isFinite(in.my) || !isFinite(in.mz) || !isFinite(in.yaw) || !isFinite(in.pitch)) {
+            return;
+        }
+        MobInfo m = mobRegistry.get(in.i1);
+        if (m == null) {
+            if (!validNumber(p, in.i1) || mobRegistry.size() >= 400) {
+                return;
+            }
+            m = new MobInfo();
+            m.number = in.i1;
+            m.kind = in.i2;
+            m.owner = p.getName();
+            mobRegistry.put(m.number, m);
+        } else if (!m.owner.equalsIgnoreCase(p.getName())) {
+            return;
+        }
+        m.x = in.x;
+        m.y = in.y;
+        m.z = in.z;
+        m.yaw = in.yaw;
+        m.pitch = in.pitch;
+        m.body = (float) in.mx;
+        m.limbAmount = (float) in.my;
+        m.limbPosition = (float) in.mz;
+        m.hurt = in.i3;
+        m.death = in.i4;
+        m.fireAndHealth = in.i5;
+        for (TWPlayer q : players.values()) {
+            if (q != p && near(q, m.x, m.y, m.z, 160)) {
+                sendMobTo(q, m, false);
+            }
+        }
+    }
+
+    private void sendMobTo(TWPlayer q, MobInfo m, boolean adopt) {
+        if (adopt) {
+            q.getConnection().sendMobAdopt(m.number, m.kind, m.x, m.y, m.z, m.yaw, m.pitch, m.body, m.limbAmount,
+                    m.limbPosition, m.hurt, m.death, m.fireAndHealth);
+        } else {
+            q.getConnection().sendMobState(m.number, m.kind, m.x, m.y, m.z, m.yaw, m.pitch, m.body, m.limbAmount,
+                    m.limbPosition, m.hurt, m.death, m.fireAndHealth);
+        }
+    }
+
+    private void handleMobRemove(TWPlayer p, PlayerConnection.InPacket in) {
+        MobInfo m = mobRegistry.get(in.i1);
+        if (!sharesDrops() || !p.allow("mobremove", 80) || m == null || !m.owner.equalsIgnoreCase(p.getName())) {
+            return;
+        }
+        mobRegistry.remove(m.number);
+        for (TWPlayer q : players.values()) {
+            if (q != p) {
+                q.getConnection().sendMobRemove(m.number);
+            }
+        }
+    }
+
+    /** A player hit the copy of a mob: the game of the player who runs the mob hurts the real one. */
+    private void handleMobHit(TWPlayer p, PlayerConnection.InPacket in) {
+        MobInfo m = mobRegistry.get(in.i1);
+        if (!sharesDrops() || !p.allow("mobhit", 30) || m == null || p.dead || in.i2 < 1 || m.owner.equalsIgnoreCase(p.getName())
+                || !near(p, m.x, m.y, m.z, 64)) {
+            return;
+        }
+        TWPlayer owner = players.get(m.owner.toLowerCase(java.util.Locale.ENGLISH));
+        if (owner != null && owner.joined) {
+            owner.getConnection().sendMobHit(m.number, Math.min(in.i2, 10), p.getEntityId());
+        }
+    }
+
+    /**
+     * A mob only goes after the player of the game that runs it (the game has one player in its world, and looks for a
+     * target within 16 blocks of it). So a mob must be run by the game of the player who is near it: once a second, a mob
+     * whose owner is far away and that has another player clearly nearer is handed to that player.
+     */
+    private void mobAuthorityTick() {
+        for (MobInfo m : new java.util.ArrayList<MobInfo>(mobRegistry.values())) {
+            if (tickCount - m.handedOverAt < 100) {
+                continue;
+            }
+            TWPlayer owner = players.get(m.owner.toLowerCase(java.util.Locale.ENGLISH));
+            double dOwner = owner == null || !owner.joined ? Double.MAX_VALUE : distance2(owner, m);
+            TWPlayer best = null;
+            double bestD = 24 * 24;
+            for (TWPlayer q : players.values()) {
+                if (q != owner && q.joined && q.getConnection() != null && !q.dead) {
+                    double d = distance2(q, m);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = q;
+                    }
+                }
+            }
+            // the owner can still catch the mob when it is within 20 blocks; otherwise the nearer player gets it
+            if (best != null && dOwner > 20 * 20 && bestD < dOwner * 0.6) {
+                m.handedOverAt = tickCount;
+                if (owner != null && owner.joined) {
+                    owner.getConnection().sendMobRelease(m.number);
+                }
+                m.owner = best.getName();
+                sendMobTo(best, m, true);
+            }
+        }
+    }
+
+    private static double distance2(TWPlayer p, MobInfo m) {
+        double dx = p.x - m.x, dy = p.y - m.y, dz = p.z - m.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    /** The owner of some mobs left: the nearest other player takes each mob over, or the mob is gone. */
+    private void transferMobs(TWPlayer leaver) {
+        for (java.util.Iterator<MobInfo> it = mobRegistry.values().iterator(); it.hasNext();) {
+            MobInfo m = it.next();
+            if (!m.owner.equalsIgnoreCase(leaver.getName())) {
+                continue;
+            }
+            TWPlayer best = null;
+            double bestD = 200 * 200;
+            for (TWPlayer q : players.values()) {
+                if (q != leaver && q.joined && q.getConnection() != null) {
+                    double dx = q.x - m.x, dz = q.z - m.z;
+                    if (dx * dx + dz * dz < bestD) {
+                        bestD = dx * dx + dz * dz;
+                        best = q;
+                    }
+                }
+            }
+            if (best != null) {
+                m.owner = best.getName();
+                sendMobTo(best, m, true);
+            } else {
+                it.remove();
+                for (TWPlayer q : players.values()) {
+                    if (q != leaver) {
+                        q.getConnection().sendMobRemove(m.number);
+                    }
+                }
+            }
+        }
+    }
+
+
+    /** The saved inventory may come from another build: ids that this build does not have are left out. */
+    private int[] filterInventory(int[] saved) {
+        int[] out = saved.clone();
+        for (int i = 0; i + 2 < out.length; i += 3) {
+            if (out[i] >= 0 && (!bridge.isValidItem(out[i]) || out[i + 1] > 999)) {
+                out[i] = -1;
+                out[i + 1] = 0;
+                out[i + 2] = 0;
+            }
+        }
+        return out;
     }
 
     private void handleInventoryReport(TWPlayer p, int[] inv) {

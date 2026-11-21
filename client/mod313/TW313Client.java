@@ -86,6 +86,10 @@ public final class TW313Client {
         if (failed) {
             return;
         }
+        TWConnection bc = conn;
+        if (bc != null) {
+            bc.beginBatch(); // what this tick sends goes out together (an explosion makes hundreds of block changes)
+        }
         try {
             doTick(mc);
         } catch (Throwable t) {
@@ -95,6 +99,14 @@ public final class TW313Client {
             t.printStackTrace();
             if (conn != null) {
                 conn.close("Client error: " + t);
+            }
+        } finally {
+            if (bc != null) {
+                bc.endBatch();
+            }
+            TWConnection now = conn;
+            if (now != null && now != bc) {
+                now.endBatch();
             }
         }
     }
@@ -309,8 +321,31 @@ public final class TW313Client {
      * Ends the connection (for whatever reason), goes back to the title screen and, for a failure, tells the
      * player why in a message box (on its own thread: the game loop must not wait for it).
      */
+    /** Before the connection is closed: what the server has not got yet (the inventory, an open chest). */
+    private static void flushOnLeave(TWConnection c, Object mc) throws Exception {
+        Object world = mcWorld.get(mc);
+        Object player = world == null ? null : worldPlayer.get(world);
+        if (player == null) {
+            return;
+        }
+        if (invSynced) {
+            String sig = inventorySignature(player);
+            if (!sig.equals(invSignature)) {
+                invSignature = sig;
+                c.sendInventoryReport(inventoryTriples(player));
+            }
+        }
+    }
+
     private static void leave(String reason, Object mc) {
         TWConnection c = conn;
+        if (c != null && loggedIn) {
+            try {
+                flushOnLeave(c, mc);
+            } catch (Throwable ignored) {
+                // the connection may be gone already
+            }
+        }
         if (c != null) {
             c.close(reason);
         }
@@ -1290,26 +1325,33 @@ public final class TW313Client {
      * Two game windows on one computer both read the same mouse: the one without focus must not turn its camera. While
      * the window is not active the mouse is released (and its movement thrown away); it is grabbed again on return.
      */
-    private static void focusGuard() {
-        // two checks: the window of LWJGL, and whether any window of this game process has the keyboard focus
-        boolean awtActive = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow() != null;
-        boolean active = org.lwjgl.opengl.Display.isActive() && awtActive;
-        if (DEBUG && active != lastActive) {
-            lastActive = active;
-            System.out.println("[Infdev MP] focus: lwjgl " + org.lwjgl.opengl.Display.isActive() + " awt " + awtActive
-                    + " grabbed " + org.lwjgl.input.Mouse.isGrabbed());
+    private static int trimTicks;
+
+    /**
+     * The game asks the provider for every chunk it looks at; the ones that did not arrive from the server get an empty
+     * stand-in (about 80 KB). Stand-ins far from the player are dropped, so that a long walk does not fill the memory.
+     */
+    private static void trimStandIns(Object player) throws Exception {
+        if (++trimTicks % 100 != 0) {
+            return;
         }
-        if (!active) {
-            if (org.lwjgl.input.Mouse.isGrabbed()) {
-                org.lwjgl.input.Mouse.setGrabbed(false);
-                releasedForFocus = true;
+        int pcx = (int) Math.floor(posX.getDouble(player)) >> 4, pcz = (int) Math.floor(posZ.getDouble(player)) >> 4;
+        for (java.util.Iterator<java.util.Map.Entry<Long, Object>> it = chunkMap.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<Long, Object> en = it.next();
+            if (received.contains(en.getKey())) {
+                continue;
             }
-            org.lwjgl.input.Mouse.getDX();
-            org.lwjgl.input.Mouse.getDY();
-        } else if (releasedForFocus) {
-            releasedForFocus = false;
-            org.lwjgl.input.Mouse.setGrabbed(true);
-            mouseFlush = 3;
+            int cx = ((int) (en.getKey() >> 32) << 4) >> 4, cz = ((int) (long) en.getKey() << 4) >> 4;
+            if (Math.abs(cx - pcx) > 14 || Math.abs(cz - pcz) > 14) {
+                it.remove();
+            }
+        }
+    }
+
+    private static void focusGuard() {
+        try {
+            TWMouse.guard(screenField.get(mcRef) == null && !chatOpen);
+        } catch (Exception ignored) {
         }
     }
 
@@ -1382,8 +1424,12 @@ public final class TW313Client {
         int processed = 0;
         TWConnection.Pkt p;
         while (conn == c && (p = c.poll()) != null) {
-            handle(c, world, p);
-            if (++processed > 400 && p.id == Protocol.CHUNK) {
+            try {
+                handle(c, world, p);
+            } catch (Throwable t) {
+                System.err.println("[Infdev MP] packet " + p.id + " could not be handled: " + t);
+            }
+            if (++processed > 40 && p.id == Protocol.CHUNK) {
                 break; // the rest on the next tick
             }
         }
@@ -1402,6 +1448,7 @@ public final class TW313Client {
             return;
         }
         focusGuard();
+        trimStandIns(player);
         if (mouseFlush > 0) {
             // the game grabs the mouse when the world opens: the jump of the cursor to the window centre must not
             // turn the camera

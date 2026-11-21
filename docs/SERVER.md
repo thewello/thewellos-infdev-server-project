@@ -37,7 +37,7 @@ Java 8 is required. Use `-Xmx2G` for more than about 20 players.
 | `mob-cap-monsters` | 100 | Monsters per player (within 128 blocks) |
 | `mob-cap-animals` | 20 | Animals per player (within 128 blocks) |
 | `autosave-minutes` | 5 | Interval for saving the world |
-| `game-version` | inf-20100630-1340 | The game build this server runs: `inf-20100630-1340`, `inf-20100227-1433`, `inf-20100313` or `inf-20100316`. Only that build's content is used, and only clients of that build can join. See [MULTIVERSION.md](MULTIVERSION.md) |
+| `game-version` | inf-20100630-1340 | The game build this server runs: `inf-20100630-1340`, `inf-20100227-1433`, `inf-20100313`, `inf-20100316` or `inf-20100320`. Only that build's content is used, and only clients of that build can join. See [MULTIVERSION.md](MULTIVERSION.md) |
 | `game-jar` | auto | Game jar to load. `auto` picks the first `inf-*.jar` in the server folder that belongs to `game-version`. An explicit name must belong to it too |
 
 Worlds are stored in `worlds/<game-version>/<level-name>/`, so two builds never share a world folder. A world
@@ -47,12 +47,12 @@ first start with `inf-20100630-1340`.
 ### Moving a world to a newer build
 
 Set `game-version` to the newer build and start the server. If `level-name` has no world for that build yet but has one
-for an older build (`inf-20100227-1433` to `inf-20100313` to `inf-20100316`), the server takes it over: it creates the new
+for an older build (`inf-20100227-1433` to `inf-20100313` to `inf-20100316` to `inf-20100320`), the server takes it over: it creates the new
 world at once and converts each chunk the first time a player needs it. The old world is only read. `/convertworld`
 converts the chunks nobody has visited yet. Do not delete the old world before the console says it is complete.
 See [MULTIVERSION.md](MULTIVERSION.md).
 
-Builds `inf-20100227-1433`, `inf-20100313` and `inf-20100316` have no mobs or animals: `difficulty`, `spawn-monsters`,
+Builds `inf-20100227-1433`, `inf-20100313`, `inf-20100316` and `inf-20100320` have no mobs or animals: `difficulty`, `spawn-monsters`,
 `spawn-animals` and the mob caps have no effect there, and the commands that need them are not registered.
 
 ## Operators and permissions
@@ -74,7 +74,7 @@ plugin only loads on the build named in its `plugin.yml` (`api:` line): see [plu
 
 | File | Purpose |
 |---|---|
-| `worlds/<build>/<level>/` | World data, player positions and (builds 227, 313, 316) saved inventories |
+| `worlds/<build>/<level>/` | World data, player positions and (builds 227, 313, 316, 320) saved inventories |
 | `ops.txt`, `white-list.txt`, `banned-players.txt` | Access lists |
 | `permissions.txt` | Extra permissions |
 | `logs/latest.log` | Log of the current run |

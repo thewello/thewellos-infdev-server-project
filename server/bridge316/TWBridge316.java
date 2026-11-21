@@ -53,6 +53,8 @@ public class TWBridge316 implements GameBridge {
     private EntityListener entityListener;
 
     private Object world;
+    /** The game's own tables of blocks and items: what is in them exists in this build. */
+    private Object[] blockTable, itemTable;
     private Method getBlockMethod;
     private Method setBlockMethod;
     private Method getMetaMethod;
@@ -109,6 +111,8 @@ public class TWBridge316 implements GameBridge {
             chunkClass = Class.forName("net.minecraft.a.a.e.d", true, cl);
             Class<?> nibbleClass = Class.forName("net.minecraft.a.a.e.c", true, cl);
             Class<?> generatorClass = Class.forName("net.minecraft.a.a.e.e", true, cl);
+            blockTable = (Object[]) Class.forName("net.minecraft.a.a.b.x", true, cl).getField("c").get(null);
+            itemTable = (Object[]) Class.forName("net.minecraft.a.b.i", true, cl).getField("b").get(null);
             world = worldClass.getConstructor().newInstance();
             getBlockMethod = worldClass.getMethod("a", int.class, int.class, int.class);
             setBlockMethod = worldClass.getMethod("b", int.class, int.class, int.class, int.class);
@@ -593,9 +597,9 @@ public class TWBridge316 implements GameBridge {
         return chunks.size();
     }
 
-    /** Block ids 1..255 exist in this build (the item list is the block list). */
+    /** Whether the game has a block or an item with this id (its own tables are looked at). */
     public boolean isValidItem(int id) {
-        return id > 0 && id < 256;
+        return id > 0 && ((id < blockTable.length && blockTable[id] != null) || (id < itemTable.length && itemTable[id] != null));
     }
 
     public void setEntityListener(EntityListener listener) {

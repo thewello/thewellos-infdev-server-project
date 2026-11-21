@@ -1,0 +1,6 @@
+name: NoIllegals
+version: 1.0
+api: inf-20100320
+main: net.thewellodev.noillegals.NoIllegals
+author: TheWello
+description: Blocks placing and breaking of blocks that survival players cannot use (bedrock, water, lava, fire). Operators are exempt.

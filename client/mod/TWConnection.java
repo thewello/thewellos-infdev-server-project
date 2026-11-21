@@ -326,6 +326,41 @@ public class TWConnection {
             case Protocol.DROP_REMOVE:
                 p.i1 = in.readInt();
                 break;
+            case Protocol.MOB_STATE:
+            case Protocol.MOB_ADOPT:
+                p.i1 = in.readInt();
+                p.i2 = in.readUnsignedByte();
+                p.x = in.readDouble();
+                p.y = in.readDouble();
+                p.z = in.readDouble();
+                p.yaw = in.readFloat();
+                p.pitch = in.readFloat();
+                p.mx = in.readFloat();
+                p.my = in.readFloat();
+                p.mz = in.readFloat();
+                p.i3 = in.readUnsignedByte();
+                p.i4 = in.readUnsignedByte();
+                p.i5 = in.readInt();
+                break;
+            case Protocol.MOB_HIT:
+                p.i1 = in.readInt();
+                p.i2 = in.readUnsignedByte();
+                p.i3 = in.readInt();
+                break;
+            case Protocol.MOB_RELEASE:
+                p.i1 = in.readInt();
+                break;
+            case Protocol.DROP_CLAIM_RESULT:
+                p.i1 = in.readInt();
+                p.i2 = in.readUnsignedByte();
+                break;
+            case Protocol.SLOT:
+                p.i1 = in.readInt();
+                p.i2 = in.readInt();
+                break;
+            case Protocol.MOB_REMOVE:
+                p.i1 = in.readInt();
+                break;
             case Protocol.INVENTORY_SYNC: {
                 int n = in.readUnsignedByte();
                 p.inv = new int[n * 3];
@@ -419,6 +454,29 @@ public class TWConnection {
         void write(DataOutputStream o) throws IOException;
     }
 
+    /** While true the packets are collected and sent together (one tick can make hundreds of block changes). */
+    private volatile boolean batching;
+
+    public void beginBatch() {
+        batching = true;
+    }
+
+    /** Sends what was collected since {@link #beginBatch()}. */
+    public void endBatch() {
+        batching = false;
+        DataOutputStream o = out;
+        if (o == null || closed) {
+            return;
+        }
+        try {
+            synchronized (o) {
+                o.flush();
+            }
+        } catch (IOException e) {
+            close("Send error: " + e.getMessage());
+        }
+    }
+
     private void send(Writer w) {
         DataOutputStream o = out;
         if (o == null || closed) {
@@ -427,7 +485,9 @@ public class TWConnection {
         try {
             synchronized (o) {
                 w.write(o);
-                o.flush();
+                if (!batching) {
+                    o.flush();
+                }
             }
         } catch (IOException e) {
             close("Send error: " + e.getMessage());
@@ -566,6 +626,75 @@ public class TWConnection {
                 for (int i = 0; i < 6; i++) {
                     o.writeDouble(v[i]);
                 }
+            }
+        });
+    }
+
+    /** Build 320: an explosion happened in this game (the server accepts the burst of block changes). */
+    public void sendExplosion(final float power, final double x, final double y, final double z) {
+        send(new Writer() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.EXPLOSION);
+                o.writeFloat(power);
+                o.writeDouble(x);
+                o.writeDouble(y);
+                o.writeDouble(z);
+            }
+        });
+    }
+
+    /** Builds 316 and 320: a mob of this game (own number, kind, position, rotation). */
+    public void sendMobState(final int number, final int kind, final double x, final double y, final double z,
+                             final float yaw, final float pitch, final float body, final float limbAmount,
+                             final float limbPosition, final int hurt, final int death, final int fireAndHealth) {
+        send(new Writer() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.MOB_STATE);
+                o.writeInt(number);
+                o.writeByte(kind);
+                o.writeDouble(x);
+                o.writeDouble(y);
+                o.writeDouble(z);
+                o.writeFloat(yaw);
+                o.writeFloat(pitch);
+                o.writeFloat(body);
+                o.writeFloat(limbAmount);
+                o.writeFloat(limbPosition);
+                o.writeByte(hurt);
+                o.writeByte(death);
+                o.writeInt(fireAndHealth);
+            }
+        });
+    }
+
+    /** Builds 316 and 320: this game hit the copy of a mob of another player's game. */
+    public void sendMobHit(final int number, final int damage) {
+        send(new Writer() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.MOB_HIT);
+                o.writeInt(number);
+                o.writeByte(damage);
+            }
+        });
+    }
+
+    /** Builds 316 and 320: this game wants to pick up the shared item with this number. */
+    public void sendDropClaim(final int number) {
+        send(new Writer() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.DROP_CLAIM);
+                o.writeInt(number);
+            }
+        });
+    }
+
+    /** Builds 316 and 320: a mob of this game is gone (own: the number is this client's own number). */
+    public void sendMobRemove(final int number, final boolean own) {
+        send(new Writer() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.MOB_REMOVE);
+                o.writeInt(number);
+                o.writeByte(own ? 1 : 0);
             }
         });
     }

@@ -4,7 +4,7 @@ url:
 launch-method:indev
 launch-method-link:
 proxy-args:-Dhttp.proxyHost=betacraft.uk -Dhttp.proxyPort=11702
-other-name:TheWello's Infdev Multiplayer (Infdev 20100630)
+other-name:TheWello's Infdev Multiplayer (Infdev 20100630-1340)
 macos-mousefix:true
 custom:true
 file-ver:1

@@ -87,6 +87,10 @@ public final class TW316Client {
         if (failed) {
             return;
         }
+        TWConnection bc = conn;
+        if (bc != null) {
+            bc.beginBatch(); // what this tick sends goes out together (an explosion makes hundreds of block changes)
+        }
         try {
             doTick(mc);
         } catch (Throwable t) {
@@ -96,6 +100,14 @@ public final class TW316Client {
             t.printStackTrace();
             if (conn != null) {
                 conn.close("Client error: " + t);
+            }
+        } finally {
+            if (bc != null) {
+                bc.endBatch();
+            }
+            TWConnection now = conn;
+            if (now != null && now != bc) {
+                now.endBatch();
             }
         }
     }
@@ -310,8 +322,31 @@ public final class TW316Client {
      * Ends the connection (for whatever reason), goes back to the title screen and, for a failure, tells the
      * player why in a message box (on its own thread: the game loop must not wait for it).
      */
+    /** Before the connection is closed: what the server has not got yet (the inventory, an open chest). */
+    private static void flushOnLeave(TWConnection c, Object mc) throws Exception {
+        Object world = mcWorld.get(mc);
+        Object player = world == null ? null : worldPlayer.get(world);
+        if (player == null) {
+            return;
+        }
+        if (invSynced) {
+            String sig = inventorySignature(player);
+            if (!sig.equals(invSignature)) {
+                invSignature = sig;
+                c.sendInventoryReport(inventoryTriples(player));
+            }
+        }
+    }
+
     private static void leave(String reason, Object mc) {
         TWConnection c = conn;
+        if (c != null && loggedIn) {
+            try {
+                flushOnLeave(c, mc);
+            } catch (Throwable ignored) {
+                // the connection may be gone already
+            }
+        }
         if (c != null) {
             c.close(reason);
         }
@@ -766,6 +801,9 @@ public final class TW316Client {
                 for (Remote r : remotes.values()) {
                     renderEntity.invoke(rm, r.entity, partial);
                 }
+                for (Object mob : mobCopies.values().toArray()) {
+                    renderEntity.invoke(rm, mob, partial);
+                }
                 for (Remote r : remotes.values()) {
                     projectNameTag(rm, r, partial);
                 }
@@ -1042,6 +1080,14 @@ public final class TW316Client {
         if (DEBUG) {
             System.out.println("[Infdev MP] attack aim: remotes " + remotes.size() + " target " + bestId);
         }
+        if (!mobCopies.isEmpty()) {
+            double[] mh = aimAtMobCopy(ox, oy, oz, dx, dy, dz, best);
+            if (mh != null) {
+                lastAttackMs = now;
+                c.sendMobHit((int) mh[0], attackDamage(player));
+                return;
+            }
+        }
         if (bestId != Integer.MIN_VALUE) {
             lastAttackMs = now;
             c.sendAttack(bestId, attackDamage(player));
@@ -1173,17 +1219,54 @@ public final class TW316Client {
     private static final java.util.Map<Object, int[]> dropTracked = new java.util.IdentityHashMap<Object, int[]>();
     /** Items that appeared in this game and have not been announced yet (their motion is set after they are added). */
     private static final java.util.List<Object> dropPending = new java.util.ArrayList<Object>();
-    /** Copies of other players' items, by the number the server gave them. */
-    private static final java.util.Map<Integer, Object> dropRemote = new java.util.HashMap<Integer, Object>();
+    /** Every shared item of this game by its number (own items and copies). */
+    private static final java.util.Map<Integer, Object> dropByNumber = new java.util.HashMap<Integer, Object>();
     private static boolean spawningRemoteDrop;
-    private static int dropSeq;
+    /** The slot of this game on the server (top bits of the numbers of its items and mobs) and its last own number. */
+    private static int mySlot = -1, mySeq;
+    /** Items for which a pick-up was asked, and when; items the server gave to this game. */
+    private static final java.util.Map<Object, Long> claimSent = new java.util.IdentityHashMap<Object, Long>();
+    private static final java.util.Set<Object> claimGranted =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object, Boolean>());
+
+    /** The next number of this game: slot and a counter that is never 0 (a lower part of 0 means "all of that player"). */
+    private static int nextNumber() {
+        mySeq = (mySeq + 1) & 0xFFFFF;
+        if (mySeq == 0) {
+            mySeq = 1;
+        }
+        return (mySlot << 20) | mySeq;
+    }
+
+    private static void onSlot(TWConnection.Pkt p) {
+        mySlot = p.i1 & 0x7FF;
+        mySeq = p.i2 & 0xFFFFF;
+    }
 
     /**
      * Called at the start of the world's add-entity method. The game of every player has its own items (blocks drop,
      * items can be thrown); the server passes them on, so everybody sees all of them.
      */
     public static void onEntityAdd(Object entity) {
+        if (entity != null && connected() && mobKind(entity.getClass()) >= 0) {
+            if (adoptNumber != 0) {
+                ownMobs.put(entity, new int[]{adoptNumber, mobKind(entity.getClass())}); // a mob taken over: same number
+                return;
+            }
+            synchronized (mobPending) {
+                mobPending.add(entity);
+            }
+            return;
+        }
         if (arrowC != null && entity != null && entity.getClass() == arrowC && connected()) {
+            try {
+                Object w = mcRef == null ? null : mcWorld.get(mcRef);
+                if (w == null || arrowShooter.get(entity) != worldPlayer.get(w)) {
+                    return; // the arrow of a skeleton or another source: not an attack of this player
+                }
+            } catch (Exception ignored) {
+                return;
+            }
             synchronized (ownArrows) {
                 ownArrows.add(entity);
             }
@@ -1198,6 +1281,55 @@ public final class TW316Client {
         }
     }
 
+    /**
+     * Called at the start of the item entity's "touched by a player" method. A shared item is only picked up when the server
+     * has given it to this game (two players who touch it at the same time must not both get it). Returns true to cancel
+     * the pick-up for now.
+     */
+    public static boolean onItemPickup(Object item) {
+        if (!connected() || conn == null) {
+            return false;
+        }
+        int[] v = dropTracked.get(item);
+        if (v == null) {
+            return false; // not shared (it was there before the login)
+        }
+        if (claimGranted.remove(item)) {
+            return false; // the server said yes: the game picks it up now
+        }
+        long now = System.currentTimeMillis();
+        Long sent = claimSent.get(item);
+        if (sent == null || now - sent > 1500) {
+            claimSent.put(item, now);
+            conn.sendDropClaim(v[0]);
+        }
+        return true;
+    }
+
+    private static void onClaimResult(int number, boolean ok) {
+        Object e = dropByNumber.get(number);
+        if (e == null) {
+            return;
+        }
+        if (ok) {
+            claimGranted.add(e);
+        } else {
+            forgetDrop(e, number); // somebody else got it
+        }
+    }
+
+    private static void forgetDrop(Object e, int number) {
+        try {
+            entDead.setBoolean(e, true);
+        } catch (Exception ignored) {
+            // the entity is gone anyway
+        }
+        dropTracked.remove(e);
+        dropByNumber.remove(number);
+        claimSent.remove(e);
+        claimGranted.remove(e);
+    }
+
     private static void dropTick(TWConnection c) throws Exception {
         Object[] pending;
         synchronized (dropPending) {
@@ -1205,20 +1337,21 @@ public final class TW316Client {
             dropPending.clear();
         }
         for (Object e : pending) {
-            if (entDead.getBoolean(e)) {
+            if (entDead.getBoolean(e) || mySlot < 0) {
                 continue;
             }
             Object stack = stackOfItem.get(e);
             if (stack == null) {
                 continue;
             }
-            int seq = ++dropSeq & 0xFFFFF;
-            dropTracked.put(e, new int[]{seq, 0});
+            int number = nextNumber();
+            dropTracked.put(e, new int[]{number, 0});
+            dropByNumber.put(number, e);
             if (DEBUG) {
                 System.out.println("[Infdev MP] item announced: " + stackId.getInt(stack) + " x" + stackCount.getInt(stack)
-                        + " #" + seq + " at " + posX.getDouble(e) + "," + posY.getDouble(e) + "," + posZ.getDouble(e) + " dmg " + stackDamage.getInt(stack));
+                        + " #" + number + " at " + posX.getDouble(e) + "," + posY.getDouble(e) + "," + posZ.getDouble(e));
             }
-            c.sendDropSpawn(seq, stackId.getInt(stack), stackCount.getInt(stack), stackDamage.getInt(stack),
+            c.sendDropSpawn(number, stackId.getInt(stack), stackCount.getInt(stack), stackDamage.getInt(stack),
                     new double[]{posX.getDouble(e), posY.getDouble(e), posZ.getDouble(e), entMotX.getDouble(e),
                             entMotY.getDouble(e), entMotZ.getDouble(e)});
         }
@@ -1233,15 +1366,18 @@ public final class TW316Client {
                     System.out.println("[Infdev MP] item gone #" + v[0] + (v[1] == 0 ? " (own)" : " (copy)"));
                 }
                 c.sendDropRemove(v[0], v[1] == 0); // picked up, or too old: the others drop their copy
-                if (v[1] != 0) {
-                    dropRemote.remove(v[0]);
-                }
+                dropByNumber.remove(v[0]);
+                claimSent.remove(en.getKey());
+                claimGranted.remove(en.getKey());
                 it.remove();
             }
         }
     }
 
     private static void onDropSpawn(Object world, TWConnection.Pkt p) throws Exception {
+        if (dropByNumber.containsKey(p.i1)) {
+            return;
+        }
         Object stack = stackCtor2.newInstance(p.i2, p.i3);
         stackDamage.setInt(stack, p.i4);
         Object e = itemEntityCtor.newInstance(world, p.x, p.y, p.z, stack);
@@ -1258,36 +1394,26 @@ public final class TW316Client {
             System.out.println("[Infdev MP] item of another player: " + p.i2 + " x" + p.i3 + " #" + p.i1);
         }
         dropTracked.put(e, new int[]{p.i1, 1});
-        dropRemote.put(p.i1, e);
+        dropByNumber.put(p.i1, e);
     }
 
+    /** An item is gone (somebody got it, or it is too old): the copy or the own item goes away here too. */
     private static void onDropRemove(TWConnection.Pkt p) throws Exception {
-        if ((p.i1 >>> 20) == (myEntityId & 0x7FF)) {
-            // somebody picked up an item that this game dropped: take it away here too
-            int seq = p.i1 & 0xFFFFF;
-            for (java.util.Iterator<java.util.Map.Entry<Object, int[]>> it = dropTracked.entrySet().iterator(); it.hasNext();) {
-                java.util.Map.Entry<Object, int[]> en = it.next();
-                if (en.getValue()[1] == 0 && en.getValue()[0] == seq) {
-                    if (DEBUG) {
-                        System.out.println("[Infdev MP] own item #" + seq + " was picked up by another player");
-                    }
-                    entDead.setBoolean(en.getKey(), true);
-                    it.remove();
-                    return;
-                }
-            }
-            return;
-        }
-        Object e = dropRemote.remove(p.i1);
+        Object e = dropByNumber.get(p.i1);
         if (e != null) {
-            dropTracked.remove(e);
-            entDead.setBoolean(e, true);
+            if (DEBUG) {
+                System.out.println("[Infdev MP] item #" + p.i1 + " was taken by another player");
+            }
+            forgetDrop(e, p.i1);
         }
     }
 
     private static void dropReset() {
         dropTracked.clear();
-        dropRemote.clear();
+        dropByNumber.clear();
+        claimSent.clear();
+        claimGranted.clear();
+        mySlot = -1;
         synchronized (dropPending) {
             dropPending.clear();
         }
@@ -1295,10 +1421,259 @@ public final class TW316Client {
 
     private static Field stackOfItem;
 
+    // ----- mobs that an arrow makes (shared between the players) ------------------------------------------------
+
+    private static final String[] MOB_CLASS_NAMES = {"net.minecraft.a.c.a.f", "net.minecraft.a.c.a.c",
+            "net.minecraft.a.c.a.d", "net.minecraft.a.c.a.b", "net.minecraft.a.c.b.c", "net.minecraft.a.c.b.b"};
+    private static Class<?>[] mobClasses;
+    private static Constructor<?>[] mobCtors;
+    private static Method entSetPos, entHurt;
+    private static Field entDeath, entFire, entBox;
+    private static Field[] boxFields;
+    /** The mobs of this game that the server knows: the entity -> {number, kind}. */
+    private static final java.util.Map<Object, int[]> ownMobs = new java.util.IdentityHashMap<Object, int[]>();
+    private static final java.util.List<Object> mobPending = new java.util.ArrayList<Object>();
+    /** Copies of the mobs of other players' games (not in the world's entity list: the owner's game moves them). */
+    private static final java.util.Map<Integer, Object> mobCopies = new java.util.HashMap<Integer, Object>();
+    /** Where the owner's game says each copy is and how it looks: x, y, z, yaw, pitch, body yaw, limb amount, limb position, hurt, death, fire, health. */
+    private static final java.util.Map<Integer, double[]> mobTargets = new java.util.HashMap<Integer, double[]>();
+    private static int mobTicks;
+    /** Set while a mob that the server handed over is added to the world: its number. */
+    private static int adoptNumber;
+
+    private static int mobKind(Class<?> c) {
+        for (int i = 0; mobClasses != null && i < mobClasses.length; i++) {
+            if (mobClasses[i] == c) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static void mobTick(TWConnection c) throws Exception {
+        Object[] pending;
+        synchronized (mobPending) {
+            pending = mobPending.toArray();
+            mobPending.clear();
+        }
+        for (Object e : pending) {
+            if (!entDead.getBoolean(e) && ownMobs.size() < 40 && mySlot >= 0) {
+                int[] v = {nextNumber(), mobKind(e.getClass())};
+                ownMobs.put(e, v);
+                sendMob(c, v, e);
+            }
+        }
+        boolean update = ++mobTicks % 3 == 0;
+        for (java.util.Iterator<java.util.Map.Entry<Object, int[]>> it = ownMobs.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<Object, int[]> en = it.next();
+            if (entDead.getBoolean(en.getKey())) {
+                c.sendMobRemove(en.getValue()[0], true);
+                it.remove();
+            } else if (update) {
+                sendMob(c, en.getValue(), en.getKey());
+            }
+        }
+    }
+
+    private static void sendMob(TWConnection c, int[] v, Object e) throws Exception {
+        int hurt = Math.max(0, Math.min(255, hurtTime.getInt(e)));
+        int death = Math.max(0, Math.min(255, entDeath.getInt(e)));
+        int health = Math.max(0, Math.min(1000, healthField.getInt(e)));
+        int fire = entFire.getInt(e) > 0 ? 1 : 0;
+        c.sendMobState(v[0], v[1], posX.getDouble(e), posY.getDouble(e), posZ.getDouble(e), rotYaw.getFloat(e),
+                rotPitch.getFloat(e), ent_T.getFloat(e), ent_ag.getFloat(e), ent_ah.getFloat(e), hurt, death,
+                fire | (health << 8));
+    }
+
+    private static double[] mobTarget(TWConnection.Pkt p) {
+        return new double[]{p.x, p.y, p.z, p.yaw, p.pitch, p.mx, p.my, p.mz, p.i3, p.i4, p.i5 & 1, p.i5 >> 8};
+    }
+
+    private static void onMobState(Object world, TWConnection.Pkt p) throws Exception {
+        if (p.i2 < 0 || p.i2 >= mobCtors.length) {
+            return;
+        }
+        Object e = mobCopies.get(p.i1);
+        if (e == null) {
+            if (mobCopies.size() >= 80) {
+                return;
+            }
+            e = mobCtors[p.i2].newInstance(world);
+            if (DEBUG) {
+                System.out.println("[Infdev MP] mob of another player: kind " + p.i2 + " #" + p.i1);
+            }
+            mobCopies.put(p.i1, e);
+            entSetPos.invoke(e, p.x, p.y, p.z);
+            ent_A.setDouble(e, p.x);
+            ent_B.setDouble(e, p.y);
+            ent_C.setDouble(e, p.z);
+            rotYaw.setFloat(e, p.yaw);
+            rotPitch.setFloat(e, p.pitch);
+            ent_o.setFloat(e, p.yaw);
+            ent_p.setFloat(e, p.pitch);
+            ent_T.setFloat(e, (float) p.mx);
+            ent_U.setFloat(e, (float) p.mx);
+        }
+        mobTargets.put(p.i1, mobTarget(p));
+    }
+
+    /**
+     * Every game tick: a copy of another player's mob moves part of the way to the position the owner reported and takes
+     * over its look (body and head direction, walking, hurt, death, fire). The owner reports about seven times a second;
+     * the renderer needs the previous values of the tick to draw between the ticks.
+     */
+    private static void mobCopyTick() throws Exception {
+        for (java.util.Map.Entry<Integer, Object> en : mobCopies.entrySet()) {
+            double[] t = mobTargets.get(en.getKey());
+            if (t == null) {
+                continue;
+            }
+            Object e = en.getValue();
+            double x = posX.getDouble(e), y = posY.getDouble(e), z = posZ.getDouble(e);
+            ent_A.setDouble(e, x);
+            ent_B.setDouble(e, y);
+            ent_C.setDouble(e, z);
+            float yaw = rotYaw.getFloat(e), pitch = rotPitch.getFloat(e), body = ent_T.getFloat(e);
+            ent_o.setFloat(e, yaw);
+            ent_p.setFloat(e, pitch);
+            ent_U.setFloat(e, body);
+            ent_af.setFloat(e, ent_ag.getFloat(e));
+            double dx = t[0] - x, dy = t[1] - y, dz = t[2] - z;
+            double k = dx * dx + dy * dy + dz * dz > 64 ? 1.0 : 0.3; // far away (teleported): at once
+            entSetPos.invoke(e, x + dx * k, y + dy * k, z + dz * k);
+            rotYaw.setFloat(e, yaw + (float) wrapDegrees(t[3] - yaw) * (float) k);
+            rotPitch.setFloat(e, pitch + (float) (t[4] - pitch) * (float) k);
+            ent_T.setFloat(e, body + (float) wrapDegrees(t[5] - body) * (float) k);
+            ent_ag.setFloat(e, ent_ag.getFloat(e) + ((float) t[6] - ent_ag.getFloat(e)) * 0.4f);
+            ent_ah.setFloat(e, ent_ah.getFloat(e) + ((float) t[7] - ent_ah.getFloat(e)) * 0.4f);
+            hurtTime.setInt(e, (int) t[8]);
+            entDeath.setInt(e, (int) t[9]);
+            entFire.setInt(e, t[10] > 0 ? 300 : 0);
+            healthField.setInt(e, (int) t[11]);
+        }
+    }
+
+    /** The server hands a mob over (its owner left): the copy becomes the real mob of this game, under the same number. */
+    private static void onMobAdopt(Object world, TWConnection.Pkt p) throws Exception {
+        if (p.i2 < 0 || p.i2 >= mobCtors.length) {
+            return;
+        }
+        removeMobCopies(p.i1);
+        Object mob = mobCtors[p.i2].newInstance(world);
+        entSetPos.invoke(mob, p.x, p.y, p.z);
+        rotYaw.setFloat(mob, p.yaw);
+        rotPitch.setFloat(mob, p.pitch);
+        ent_T.setFloat(mob, (float) p.mx);
+        healthField.setInt(mob, Math.max(1, p.i5 >> 8));
+        adoptNumber = p.i1;
+        try {
+            worldAddEntity.invoke(world, mob);
+        } finally {
+            adoptNumber = 0;
+        }
+        if (DEBUG) {
+            System.out.println("[Infdev MP] took over the mob #" + p.i1);
+        }
+    }
+
+    /** The server gives the mob to the player who is nearer to it: the real mob goes (no death), a copy comes from his states. */
+    private static void onMobRelease(int number) throws Exception {
+        for (java.util.Iterator<java.util.Map.Entry<Object, int[]>> it = ownMobs.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<Object, int[]> en = it.next();
+            if (en.getValue()[0] == number) {
+                Object mob = en.getKey();
+                it.remove(); // before it is dead: the tick must not tell the server that the mob is gone
+                entDead.setBoolean(mob, true);
+                if (DEBUG) {
+                    System.out.println("[Infdev MP] gave the mob #" + number + " to a nearer player");
+                }
+                return;
+            }
+        }
+    }
+
+    /** Another player hit the copy of a mob of this game: the real mob is hurt. */
+    private static void onMobHit(TWConnection.Pkt p) throws Exception {
+        for (java.util.Map.Entry<Object, int[]> en : ownMobs.entrySet()) {
+            if (en.getValue()[0] == p.i1 && !entDead.getBoolean(en.getKey())) {
+                Object attacker = null;
+                synchronized (remotes) {
+                    Remote r = remotes.get(p.i3);
+                    if (r != null) {
+                        attacker = r.entity;
+                    }
+                }
+                if (DEBUG) {
+                    System.out.println("[Infdev MP] the mob #" + p.i1 + " was hit for " + p.i2);
+                }
+                entHurt.invoke(en.getKey(), attacker, p.i2);
+                return;
+            }
+        }
+    }
+
+    /** The first mob copy that a ray from (ox, oy, oz) in direction (dx, dy, dz) meets within max: {number, distance}, or null. */
+    private static double[] aimAtMobCopy(double ox, double oy, double oz, double dx, double dy, double dz, double max)
+            throws Exception {
+        double[] best = null;
+        double[] o = {ox, oy, oz}, d = {dx, dy, dz};
+        for (java.util.Map.Entry<Integer, Object> en : mobCopies.entrySet()) {
+            double[] box = boxOf(en.getValue());
+            double tmin = 0, tmax = max;
+            boolean hit = true;
+            for (int i = 0; i < 3 && hit; i++) {
+                if (Math.abs(d[i]) < 1e-9) {
+                    hit = o[i] >= box[i] && o[i] <= box[i + 3];
+                } else {
+                    double t1 = (box[i] - o[i]) / d[i], t2 = (box[i + 3] - o[i]) / d[i];
+                    tmin = Math.max(tmin, Math.min(t1, t2));
+                    tmax = Math.min(tmax, Math.max(t1, t2));
+                    hit = tmin <= tmax;
+                }
+            }
+            if (hit && (best == null || tmin < best[1])) {
+                best = new double[]{en.getKey(), tmin};
+            }
+        }
+        return best;
+    }
+
+    /** The bounding box of an entity: min x, y, z, max x, y, z. */
+    private static double[] boxOf(Object e) throws Exception {
+        Object b = entBox.get(e);
+        return new double[]{boxFields[0].getDouble(b), boxFields[1].getDouble(b), boxFields[2].getDouble(b),
+                boxFields[3].getDouble(b), boxFields[4].getDouble(b), boxFields[5].getDouble(b)};
+    }
+
+    /** A number with the lower 20 bits zero means all mobs of that player. */
+    private static void removeMobCopies(int number) {
+        if ((number & 0xFFFFF) != 0) {
+            mobCopies.remove(number);
+            mobTargets.remove(number);
+            return;
+        }
+        for (java.util.Iterator<Integer> it = mobCopies.keySet().iterator(); it.hasNext();) {
+            int key = it.next();
+            if ((key >>> 20) == (number >>> 20)) {
+                it.remove();
+                mobTargets.remove(key);
+            }
+        }
+    }
+
+    private static void mobReset() {
+        ownMobs.clear();
+        mobCopies.clear();
+        mobTargets.clear();
+        synchronized (mobPending) {
+            mobPending.clear();
+        }
+    }
+
     // ----- arrows ----------------------------------------------------------------------------------------------
 
     private static Class<?> arrowC, livingC316;
-    private static Field arrowStuck;
+    private static Field arrowStuck, arrowShooter;
     private static final java.util.List<Object> ownArrows = new java.util.ArrayList<Object>();
 
     /**
@@ -1339,6 +1714,18 @@ public final class TW316Client {
                     if (hit) {
                         hitId = en.getKey();
                         break;
+                    }
+                }
+            }
+            if (hitId == Integer.MIN_VALUE && !mobCopies.isEmpty()) {
+                double len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                if (len > 1e-6) {
+                    double[] mh = aimAtMobCopy(o[0], o[1], o[2], d[0] / len, d[1] / len, d[2] / len, len);
+                    if (mh != null) {
+                        c.sendMobHit((int) mh[0], 4);
+                        entDead.setBoolean(a, true);
+                        it.remove();
+                        continue;
                     }
                 }
             }
@@ -1477,29 +1864,33 @@ public final class TW316Client {
      * Two game windows on one computer both read the same mouse: the one without focus must not turn its camera. While
      * the window is not active the mouse is released (and its movement thrown away); it is grabbed again on return.
      */
-    private static void focusGuard() {
-        // two checks: the window of LWJGL, and whether any window of this game process has the keyboard focus
-        boolean awtActive = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow() != null;
-        boolean active = org.lwjgl.opengl.Display.isActive() && awtActive;
-        if (DEBUG && active != lastActive) {
-            lastActive = active;
-            System.out.println("[Infdev MP] focus: lwjgl " + org.lwjgl.opengl.Display.isActive() + " awt " + awtActive
-                    + " grabbed " + org.lwjgl.input.Mouse.isGrabbed());
+    private static int trimTicks;
+
+    /**
+     * The game asks the provider for every chunk it looks at; the ones that did not arrive from the server get an empty
+     * stand-in (about 80 KB). Stand-ins far from the player are dropped, so that a long walk does not fill the memory.
+     */
+    private static void trimStandIns(Object player) throws Exception {
+        if (++trimTicks % 100 != 0) {
+            return;
         }
-        if (!active) {
-            if (org.lwjgl.input.Mouse.isGrabbed()) {
-                if (DEBUG && ++regrabs % 40 == 1) {
-                    System.out.println("[Infdev MP] inactive window had the mouse grabbed again (" + regrabs + ")");
-                }
-                org.lwjgl.input.Mouse.setGrabbed(false);
-                releasedForFocus = true;
+        int pcx = (int) Math.floor(posX.getDouble(player)) >> 4, pcz = (int) Math.floor(posZ.getDouble(player)) >> 4;
+        for (java.util.Iterator<java.util.Map.Entry<Long, Object>> it = chunkMap.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<Long, Object> en = it.next();
+            if (received.contains(en.getKey())) {
+                continue;
             }
-            org.lwjgl.input.Mouse.getDX();
-            org.lwjgl.input.Mouse.getDY();
-        } else if (releasedForFocus) {
-            releasedForFocus = false;
-            org.lwjgl.input.Mouse.setGrabbed(true);
-            mouseFlush = 3;
+            int cx = ((int) (en.getKey() >> 32) << 4) >> 4, cz = ((int) (long) en.getKey() << 4) >> 4;
+            if (Math.abs(cx - pcx) > 14 || Math.abs(cz - pcz) > 14) {
+                it.remove();
+            }
+        }
+    }
+
+    private static void focusGuard() {
+        try {
+            TWMouse.guard(screenField.get(mcRef) == null && !chatOpen);
+        } catch (Exception ignored) {
         }
     }
 
@@ -1572,8 +1963,12 @@ public final class TW316Client {
         int processed = 0;
         TWConnection.Pkt p;
         while (conn == c && (p = c.poll()) != null) {
-            handle(c, world, p);
-            if (++processed > 400 && p.id == Protocol.CHUNK) {
+            try {
+                handle(c, world, p);
+            } catch (Throwable t) {
+                System.err.println("[Infdev MP] packet " + p.id + " could not be handled: " + t);
+            }
+            if (++processed > 40 && p.id == Protocol.CHUNK) {
                 break; // the rest on the next tick
             }
         }
@@ -1592,6 +1987,7 @@ public final class TW316Client {
             return;
         }
         focusGuard();
+        trimStandIns(player);
         if (mouseFlush > 0) {
             // the game grabs the mouse when the world opens: the jump of the cursor to the window centre must not
             // turn the camera
@@ -1615,6 +2011,8 @@ public final class TW316Client {
             combatTick(mc, c, player);
             reportInventory(c, player);
             dropTick(c);
+            mobTick(c);
+            mobCopyTick();
             arrowTick(c);
         }
         if (hold) {
@@ -1726,6 +2124,24 @@ public final class TW316Client {
             }
         }
 
+        String testMob = System.getProperty("thewellodev.testmob");
+        if (testMob != null && !hold && System.currentTimeMillis() - loginTime > 6000) {
+            // test aid (kind,dx,dz): a mob appears near the player, like the one an arrow makes (kind 0 to 5)
+            System.clearProperty("thewellodev.testmob");
+            String[] v = testMob.split(",");
+            Object mob = mobCtors[Integer.parseInt(v[0].trim())].newInstance(world);
+            setPosRot.invoke(mob, posX.getDouble(player) + Double.parseDouble(v[1].trim()), posY.getDouble(player) + (v.length > 3 ? Double.parseDouble(v[3].trim()) : 0),
+                    posZ.getDouble(player) + Double.parseDouble(v[2].trim()), 0f, 0f);
+            worldAddEntity.invoke(world, mob);
+        }
+
+        String testMobHit = System.getProperty("thewellodev.testmobhit");
+        if (testMobHit != null && !hold && !mobCopies.isEmpty() && System.currentTimeMillis() - loginTime > 9000) {
+            // test aid (damage): hits the first copy of another player's mob, like a click or an arrow would
+            System.clearProperty("thewellodev.testmobhit");
+            conn.sendMobHit(mobCopies.keySet().iterator().next(), Integer.parseInt(testMobHit.trim()));
+        }
+
         String testPlace = System.getProperty("thewellodev.testplace");
         if (testPlace != null) {
             // test aid (dx,dy,dz,id): sets one block near the player through the game's own set-block method,
@@ -1816,6 +2232,27 @@ public final class TW316Client {
             case Protocol.DROP_REMOVE:
                 onDropRemove(p);
                 break;
+            case Protocol.MOB_STATE:
+                onMobState(world, p);
+                break;
+            case Protocol.MOB_ADOPT:
+                onMobAdopt(world, p);
+                break;
+            case Protocol.MOB_HIT:
+                onMobHit(p);
+                break;
+            case Protocol.MOB_RELEASE:
+                onMobRelease(p.i1);
+                break;
+            case Protocol.DROP_CLAIM_RESULT:
+                onClaimResult(p.i1, p.i2 != 0);
+                break;
+            case Protocol.SLOT:
+                onSlot(p);
+                break;
+            case Protocol.MOB_REMOVE:
+                removeMobCopies(p.i1);
+                break;
             case Protocol.DAMAGE:
                 onDamage(world, p);
                 break;
@@ -1851,6 +2288,7 @@ public final class TW316Client {
         flying = false;
         invSynced = false;
         dropReset();
+        mobReset();
         ownArrows.clear();
         invSignature = "";
         invTicks = 0;
@@ -2097,9 +2535,25 @@ public final class TW316Client {
         onGround = playerC.getField("r");
         blockAt = worldC.getMethod("a", int.class, int.class, int.class);
         playerClassForFire = playerC;
+        entSetPos = playerC.getDeclaredMethod("a", double.class, double.class, double.class);
+        entSetPos.setAccessible(true);
+        entHurt = playerC.getMethod("a", playerC, int.class);
+        entDeath = livingC.getField("X");
+        entFire = playerC.getField("I");
+        entBox = playerC.getField("q");
+        Class<?> boxC = Class.forName("net.minecraft.a.d.b", true, cl);
+        boxFields = new Field[]{boxC.getField("a"), boxC.getField("b"), boxC.getField("c"), boxC.getField("d"),
+                boxC.getField("e"), boxC.getField("f")};
+        mobClasses = new Class<?>[MOB_CLASS_NAMES.length];
+        mobCtors = new Constructor<?>[MOB_CLASS_NAMES.length];
+        for (int i = 0; i < MOB_CLASS_NAMES.length; i++) {
+            mobClasses[i] = Class.forName(MOB_CLASS_NAMES[i], true, cl);
+            mobCtors[i] = mobClasses[i].getConstructor(worldC);
+        }
         arrowC = Class.forName("net.minecraft.a.c.d.a", true, cl);
         livingC316 = livingC;
         arrowStuck = access(arrowC, "Q");
+        arrowShooter = access(arrowC, "R");
         itemEntityC = Class.forName("net.minecraft.a.c.c.b", true, cl);
         itemEntityCtor = itemEntityC.getConstructor(worldC, double.class, double.class, double.class, stackC);
         stackOfItem = itemEntityC.getField("a");

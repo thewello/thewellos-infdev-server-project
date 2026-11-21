@@ -81,6 +81,10 @@ public final class TW227Client {
         if (failed) {
             return;
         }
+        TWConnection bc = conn;
+        if (bc != null) {
+            bc.beginBatch(); // what this tick sends goes out together (an explosion makes hundreds of block changes)
+        }
         try {
             doTick(mc);
         } catch (Throwable t) {
@@ -90,6 +94,14 @@ public final class TW227Client {
             t.printStackTrace();
             if (conn != null) {
                 conn.close("Client error: " + t);
+            }
+        } finally {
+            if (bc != null) {
+                bc.endBatch();
+            }
+            TWConnection now = conn;
+            if (now != null && now != bc) {
+                now.endBatch();
             }
         }
     }
@@ -283,8 +295,31 @@ public final class TW227Client {
      * Ends the connection (for whatever reason), goes back to the title screen and, for a failure, tells the
      * player why in a message box (on its own thread: the game loop must not wait for it).
      */
+    /** Before the connection is closed: what the server has not got yet (the inventory, an open chest). */
+    private static void flushOnLeave(TWConnection c, Object mc) throws Exception {
+        Object world = mcWorld.get(mc);
+        Object player = world == null ? null : worldPlayer.get(world);
+        if (player == null) {
+            return;
+        }
+        if (invSynced) {
+            String sig = inventorySignature(player);
+            if (!sig.equals(invSignature)) {
+                invSignature = sig;
+                c.sendInventoryReport(inventoryTriples(player));
+            }
+        }
+    }
+
     private static void leave(String reason, Object mc) {
         TWConnection c = conn;
+        if (c != null && loggedIn) {
+            try {
+                flushOnLeave(c, mc);
+            } catch (Throwable ignored) {
+                // the connection may be gone already
+            }
+        }
         if (c != null) {
             c.close(reason);
         }
@@ -1227,25 +1262,9 @@ public final class TW227Client {
      * the window is not active the mouse is released (and its movement thrown away); it is grabbed again on return.
      */
     private static void focusGuard() {
-        // two checks: the window of LWJGL, and whether any window of this game process has the keyboard focus
-        boolean awtActive = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow() != null;
-        boolean active = org.lwjgl.opengl.Display.isActive() && awtActive;
-        if (DEBUG && active != lastActive) {
-            lastActive = active;
-            System.out.println("[Infdev MP] focus: lwjgl " + org.lwjgl.opengl.Display.isActive() + " awt " + awtActive
-                    + " grabbed " + org.lwjgl.input.Mouse.isGrabbed());
-        }
-        if (!active) {
-            if (org.lwjgl.input.Mouse.isGrabbed()) {
-                org.lwjgl.input.Mouse.setGrabbed(false);
-                releasedForFocus = true;
-            }
-            org.lwjgl.input.Mouse.getDX();
-            org.lwjgl.input.Mouse.getDY();
-        } else if (releasedForFocus) {
-            releasedForFocus = false;
-            org.lwjgl.input.Mouse.setGrabbed(true);
-            mouseFlush = 3;
+        try {
+            TWMouse.guard(screenField.get(mcRef) == null && !chatOpen);
+        } catch (Exception ignored) {
         }
     }
 
@@ -1317,8 +1336,12 @@ public final class TW227Client {
         int processed = 0;
         TWConnection.Pkt p;
         while (conn == c && (p = c.poll()) != null) {
-            handle(c, world, p);
-            if (++processed > 400 && p.id == Protocol.CHUNK) {
+            try {
+                handle(c, world, p);
+            } catch (Throwable t) {
+                System.err.println("[Infdev MP] packet " + p.id + " could not be handled: " + t);
+            }
+            if (++processed > 40 && p.id == Protocol.CHUNK) {
                 break; // the rest on the next tick
             }
         }

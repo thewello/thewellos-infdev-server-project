@@ -53,14 +53,24 @@ public final class GameVersion {
             "a363943f5e2c147ab0515930317dd535e9a2229fa0eb952c73fb6f078cfbda20", true, "TWBridge316",
             "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
 
-    private static final GameVersion[] ALL = {INF_20100630_1340, INF_20100227_1433, INF_20100313, INF_20100316};
+    /**
+     * The build after 20100316: world class f again, terrain with trees and ores, chests and furnaces that keep their
+     * items, explosions and fire that can be punched out.
+     */
+    public static final GameVersion INF_20100320 = new GameVersion(
+            "inf-20100320", "Infdev inf-20100320", 14,
+            "7e6b3048a97384397e1adfb4458eafd3a0aae52845b816cfc6f138902da5e92a", true, "TWBridge320",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    private static final GameVersion[] ALL = {INF_20100630_1340, INF_20100227_1433, INF_20100313, INF_20100316,
+            INF_20100320};
 
     /**
      * The builds a world can be converted along, from the oldest to the newest: from each one to the next.
      * inf-20100630-1340 is not in it: many builds lie between it and 20100313 that are not supported yet.
      */
     public static GameVersion[] chronological() {
-        return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316};
+        return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316, INF_20100320};
     }
 
     public final String id;

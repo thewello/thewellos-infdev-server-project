@@ -137,6 +137,7 @@ public class TWClient {
     /** Called at the start of aw.i() (every game tick, 20 times per second). */
     public static void preTick(aw m) {
         mc = m;
+        TWMouse.guard();
         actionDepth = 0;
         if (mpWorld != null && m.e == mpWorld) {
             // In multiplayer the menu (ESC) does not pause the game; otherwise the other players freeze

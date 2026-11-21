@@ -261,6 +261,38 @@ public class PlayerConnection {
                 p.i1 = in.readInt();
                 p.i2 = in.readUnsignedByte();
                 break;
+            case Protocol.EXPLOSION:
+                p.yaw = in.readFloat();
+                p.x = in.readDouble();
+                p.y = in.readDouble();
+                p.z = in.readDouble();
+                break;
+            case Protocol.MOB_STATE:
+                p.i1 = in.readInt();
+                p.i2 = in.readUnsignedByte();
+                p.x = in.readDouble();
+                p.y = in.readDouble();
+                p.z = in.readDouble();
+                p.yaw = in.readFloat();
+                p.pitch = in.readFloat();
+                p.mx = in.readFloat();
+                p.my = in.readFloat();
+                p.mz = in.readFloat();
+                p.i3 = in.readUnsignedByte();
+                p.i4 = in.readUnsignedByte();
+                p.i5 = in.readInt();
+                break;
+            case Protocol.MOB_HIT:
+                p.i1 = in.readInt();
+                p.i2 = in.readUnsignedByte();
+                break;
+            case Protocol.DROP_CLAIM:
+                p.i1 = in.readInt();
+                break;
+            case Protocol.MOB_REMOVE:
+                p.i1 = in.readInt();
+                p.i2 = in.readUnsignedByte();
+                break;
             case Protocol.INVENTORY_REPORT: {
                 int n = in.readUnsignedByte();
                 if (n > 48) {
@@ -720,6 +752,95 @@ public class PlayerConnection {
                 for (int i = 0; i < 6; i++) {
                     o.writeDouble(v[i]);
                 }
+            }
+        });
+    }
+
+    /** Builds 316 and 320: a mob of another player's game. */
+    public void sendMobState(int number, int kind, double x, double y, double z, float yaw, float pitch, float body,
+                             float limbAmount, float limbPosition, int hurt, int death, int fireAndHealth) {
+        sendMob(Protocol.MOB_STATE, number, kind, x, y, z, yaw, pitch, body, limbAmount, limbPosition, hurt, death,
+                fireAndHealth);
+    }
+
+    /** Hands a mob to this player (its owner left): the same body as the state. */
+    public void sendMobAdopt(int number, int kind, double x, double y, double z, float yaw, float pitch, float body,
+                             float limbAmount, float limbPosition, int hurt, int death, int fireAndHealth) {
+        sendMob(Protocol.MOB_ADOPT, number, kind, x, y, z, yaw, pitch, body, limbAmount, limbPosition, hurt, death,
+                fireAndHealth);
+    }
+
+    private void sendMob(final int packet, final int number, final int kind, final double x, final double y,
+                         final double z, final float yaw, final float pitch, final float body, final float limbAmount,
+                         final float limbPosition, final int hurt, final int death, final int fireAndHealth) {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(packet);
+                o.writeInt(number);
+                o.writeByte(kind);
+                o.writeDouble(x);
+                o.writeDouble(y);
+                o.writeDouble(z);
+                o.writeFloat(yaw);
+                o.writeFloat(pitch);
+                o.writeFloat(body);
+                o.writeFloat(limbAmount);
+                o.writeFloat(limbPosition);
+                o.writeByte(hurt);
+                o.writeByte(death);
+                o.writeInt(fireAndHealth);
+            }
+        });
+    }
+
+    /** A player hit the mob of this player's game. */
+    public void sendMobHit(final int number, final int damage, final int attackerId) {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.MOB_HIT);
+                o.writeInt(number);
+                o.writeByte(damage);
+                o.writeInt(attackerId);
+            }
+        });
+    }
+
+    /** This player's game no longer runs the mob with this number. */
+    public void sendMobRelease(final int number) {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.MOB_RELEASE);
+                o.writeInt(number);
+            }
+        });
+    }
+
+    public void sendDropClaimResult(final int number, final boolean ok) {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.DROP_CLAIM_RESULT);
+                o.writeInt(number);
+                o.writeByte(ok ? 1 : 0);
+            }
+        });
+    }
+
+    public void sendSlot(final int slot, final int firstNumber) {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.SLOT);
+                o.writeInt(slot);
+                o.writeInt(firstNumber);
+            }
+        });
+    }
+
+    /** Builds 316 and 320: that mob is gone. */
+    public void sendMobRemove(final int number) {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.MOB_REMOVE);
+                o.writeInt(number);
             }
         });
     }

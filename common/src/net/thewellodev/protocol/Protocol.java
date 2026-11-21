@@ -133,17 +133,62 @@ public final class Protocol {
     /** Client to server (same layout as INVENTORY_SYNC): the inventory changed; the server saves it. */
     public static final int INVENTORY_REPORT = 0x34;
     /**
-     * Build 316, both directions: an item that appeared in a player's own game (a dropped block, a thrown item).
-     * Client to server: i1 = the client's own number, then item id, count, damage (short, short, short), position
-     * and motion (6 doubles). The server gives it a number (player entity id << 20 | own number) and sends it to the
-     * other players, who show it in their own game.
+     * Builds 316 and 320, both directions: an item that appeared in a player's own game (a dropped block, a thrown item).
+     * Body: int number (see {@link #SLOT}), item id, count, damage (short, short, short), position and motion (6 doubles).
+     * The server passes it to the players near it, who show it in their own game.
      */
     public static final int DROP_SPAWN = 0x35;
     /**
-     * The item entity is gone (picked up, burnt, too old). Client to server: int number, byte own (1: the number is the
-     * client's own number). Server to client: int number. The other players remove their copy.
+     * The item entity is gone (picked up, burnt, too old). Client to server: int number, byte (unused); the server accepts it
+     * from the player who dropped the item or who was given it by DROP_CLAIM_RESULT. Server to client: int number. The other
+     * players remove their copy.
      */
     public static final int DROP_REMOVE = 0x36;
+    /**
+     * Client to server (build 320): an explosion happened in the player's own game; the blocks it destroys arrive as block
+     * changes in a burst, which the server accepts (only removals inside the blast radius) although it is above the
+     * normal rate. Body: float power, 3 doubles (the centre).
+     */
+    public static final int EXPLOSION = 0x37;
+    /**
+     * Builds 316 and 320, both directions: a mob that an arrow made in a player's own game, and where it is now (sent when it
+     * appears and a few times a second). Both directions: int number, byte kind, 3 doubles position, floats yaw, pitch, body yaw, limb swing amount and
+     * limb swing position, byte hurt time, byte death time, int (fire flag | health << 8). The number is the one of
+     * {@link #SLOT}. The server passes it to the other players, whose clients draw a copy that is moved and animated from it.
+     * The mob itself lives in the game of the player whose arrow made it (the server hands it to another player when that
+     * player leaves).
+     */
+    public static final int MOB_STATE = 0x38;
+    /**
+     * The mob of a player's own game is gone. Client to server: int number, byte own (must be 1). Server to client: int
+     * number; a number whose lower 20 bits are zero means all mobs of that player (he left the server).
+     */
+    public static final int MOB_REMOVE = 0x39;
+    /**
+     * A player hit the copy of a mob of another player's game (melee or arrow). Client to server: int number, byte damage.
+     * Server to client (the owner of the mob): int number, byte damage, int entity id of the attacker.
+     */
+    public static final int MOB_HIT = 0x3A;
+    /**
+     * Server to client: the owner of this mob left and this client takes the mob over. Same body as MOB_STATE: the client
+     * replaces its copy by a real mob and from then on reports it under the same number.
+     */
+    public static final int MOB_ADOPT = 0x3B;
+    /** Client to server: this game wants to pick up the shared item with this number. Body: int number. */
+    public static final int DROP_CLAIM = 0x3C;
+    /** Server to client: answer to DROP_CLAIM. Body: int number, byte 1 = the item is yours (the first one asked gets it). */
+    public static final int DROP_CLAIM_RESULT = 0x3D;
+    /**
+     * Server to client (builds 316 and 320), after the login: int slot, int first number. The numbers of the items and mobs
+     * of a game are {@code slot << 20 | n}; n counts up from the given start and is never 0.
+     */
+    public static final int SLOT = 0x3E;
+    /**
+     * Server to client: this game no longer runs the mob with this number (another player is nearer to it and takes it
+     * over, see MOB_ADOPT). Body: int number. The real mob is removed without a death; the game draws a copy again
+     * from the states of the new owner.
+     */
+    public static final int MOB_RELEASE = 0x3F;
     /** S->C: byte difficulty (0 peaceful, 1 easy, 2 normal, 3 hard) */
     public static final int DIFFICULTY = 0x23;
 

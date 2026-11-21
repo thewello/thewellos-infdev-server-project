@@ -60,6 +60,14 @@ public class TWPlayer implements Player {
     public int heldItem = -1;
     /** Last inventory summary sent by the client: [id, amount, damage] triples, in slot order. */
     public volatile int[] invSnapshot = new int[0];
+    /** Block changes the player may still send above the normal rate (after an explosion in its game), and until when. */
+    /** Builds 316 and 320: the top bits of the numbers of this player's items and mobs, and where its numbers start. */
+    public int dropSlot = -1;
+    public int dropSeqStart;
+    public int blockBurst;
+    public long blockBurstUntil;
+    /** Centre and radius of the explosion that the burst belongs to. */
+    public double burstX, burstY, burstZ, burstRadius;
     /** The inventory saved for builds 227 and 313 (whose clients keep it): n times (id, count, damage), or null. */
     public volatile int[] savedInv;
     public TWPlayer lastAttacker;

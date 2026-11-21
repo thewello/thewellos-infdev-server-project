@@ -54,6 +54,10 @@ public class GameClassLoader extends ClassLoader {
             return new String[]{"net.minecraft.a.a.e", "net.minecraft.a.a.e.e", "net.minecraft.a.a.c.a.a",
                     "net.minecraft.a.a.c.a.c"};
         }
+        if (v == GameVersion.INF_20100320) {
+            return new String[]{"net.minecraft.a.a.f", "net.minecraft.a.a.e.e", "net.minecraft.a.a.c.a.a",
+                    "net.minecraft.a.a.c.a.c"};
+        }
         return new String[]{"net.minecraft.a.a.e", "net.minecraft.a.a.f", "net.minecraft.a.a.c.a.a",
                 "net.minecraft.a.a.c.a.c"};
     }
@@ -105,6 +109,9 @@ public class GameClassLoader extends ClassLoader {
         }
         if (v == GameVersion.INF_20100313) {
             return "net/minecraft/a/a/f.class";
+        }
+        if (v == GameVersion.INF_20100320) {
+            return "net/minecraft/a/a/b/aj.class";
         }
         if (v == GameVersion.INF_20100316) {
             return "net/minecraft/a/a/e/e.class";
@@ -180,7 +187,8 @@ public class GameClassLoader extends ClassLoader {
     public void verifyHooks() throws IOException {
         try {
             if (version != GameVersion.INF_20100630_1340) {
-                loadClass(version == GameVersion.INF_20100313 ? "net.minecraft.a.a.f" : "net.minecraft.a.a.e");
+                loadClass(version == GameVersion.INF_20100313 || version == GameVersion.INF_20100320
+                        ? "net.minecraft.a.a.f" : "net.minecraft.a.a.e");
                 for (String c : seededClasses(version)) {
                     loadClass(c); // the generator classes are patched when they load
                 }

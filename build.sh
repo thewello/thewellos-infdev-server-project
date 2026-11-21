@@ -7,6 +7,7 @@
 #   GAME227_JAR original inf-20100227-1433 jar, default: original/inf-20100227-1433.jar (skipped if missing)
 #   GAME313_JAR original inf-20100313 jar, default: original/inf-20100313.jar (skipped if missing)
 #   GAME316_JAR original inf-20100316 jar, default: original/inf-20100316.jar (skipped if missing)
+#   GAME320_JAR original inf-20100320 jar, default: original/inf-20100320.jar (skipped if missing)
 #   BETACRAFT_DIR       optional: your .betacraft folder; the patched clients are installed there
 #   PATCHED_CLIENTS_DIR optional: a folder to keep the patched client jars in (they hold Minecraft code: private use)
 # Output:
@@ -24,6 +25,7 @@ LWJGL_JAR="${LWJGL_JAR:-lib/lwjgl.jar}"
 GAME227_JAR="${GAME227_JAR:-original/inf-20100227-1433.jar}"
 GAME313_JAR="${GAME313_JAR:-original/inf-20100313.jar}"
 GAME316_JAR="${GAME316_JAR:-original/inf-20100316.jar}"
+GAME320_JAR="${GAME320_JAR:-original/inf-20100320.jar}"
 BETACRAFT_DIR="${BETACRAFT_DIR:-}"
 PATCHED_CLIENTS_DIR="${PATCHED_CLIENTS_DIR:-}"
 RELEASE_DIR="${RELEASE_DIR:-../TheWellosInfdevServer-Release}"
@@ -62,7 +64,7 @@ cp -r build/mod/* build/patcher/mod/
 if [ -n "$GAME227_JAR" ] && [ -f "$GAME227_JAR" ]; then
   echo "  client mod for inf-20100227-1433 (compiled against $GAME227_JAR)"
   mkdir -p build/mod227 build/patcher/mod227
-  "$JAVAC" $JOPT -cp "$GAME227_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod227 $(find client/mod227 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java
+  "$JAVAC" $JOPT -cp "$GAME227_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod227 $(find client/mod227 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java client/mod/TWMouse.java
   cp -r build/mod227/* build/patcher/mod227/
   (cd build/common && find net/thewellodev/protocol -name '*.class') | while read f; do
     mkdir -p "build/patcher/mod227/$(dirname "$f")"; cp "build/common/$f" "build/patcher/mod227/$f"; done
@@ -71,7 +73,7 @@ fi
 if [ -n "$GAME313_JAR" ] && [ -f "$GAME313_JAR" ]; then
   echo "  client mod for inf-20100313 (compiled against $GAME313_JAR)"
   mkdir -p build/mod313 build/patcher/mod313
-  "$JAVAC" $JOPT -cp "$GAME313_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod313 $(find client/mod313 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java
+  "$JAVAC" $JOPT -cp "$GAME313_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod313 $(find client/mod313 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java client/mod/TWMouse.java
   cp -r build/mod313/* build/patcher/mod313/
   (cd build/common && find net/thewellodev/protocol -name '*.class') | while read f; do
     mkdir -p "build/patcher/mod313/$(dirname "$f")"; cp "build/common/$f" "build/patcher/mod313/$f"; done
@@ -80,11 +82,20 @@ fi
 if [ -n "$GAME316_JAR" ] && [ -f "$GAME316_JAR" ]; then
   echo "  client mod for inf-20100316 (compiled against $GAME316_JAR)"
   mkdir -p build/mod316 build/patcher/mod316
-  "$JAVAC" $JOPT -cp "$GAME316_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod316 $(find client/mod316 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java
+  "$JAVAC" $JOPT -cp "$GAME316_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod316 $(find client/mod316 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java client/mod/TWMouse.java
   cp -r build/mod316/* build/patcher/mod316/
   (cd build/common && find net/thewellodev/protocol -name '*.class') | while read f; do
     mkdir -p "build/patcher/mod316/$(dirname "$f")"; cp "build/common/$f" "build/patcher/mod316/$f"; done
   (cd build/patcher/mod316 && find . -name '*.class' | sed 's|^\./||' | sort) > build/patcher/mod316/index.txt
+fi
+if [ -n "$GAME320_JAR" ] && [ -f "$GAME320_JAR" ]; then
+  echo "  client mod for inf-20100320 (compiled against $GAME320_JAR)"
+  mkdir -p build/mod320 build/patcher/mod320
+  "$JAVAC" $JOPT -cp "$GAME320_JAR${S}$LWJGL_JAR${S}build/common" -d build/mod320 $(find client/mod320 -name '*.java') client/mod/TWConnection.java client/mod/TWAuth.java client/mod/TWMouse.java
+  cp -r build/mod320/* build/patcher/mod320/
+  (cd build/common && find net/thewellodev/protocol -name '*.class') | while read f; do
+    mkdir -p "build/patcher/mod320/$(dirname "$f")"; cp "build/common/$f" "build/patcher/mod320/$f"; done
+  (cd build/patcher/mod320 && find . -name '*.class' | sed 's|^\./||' | sort) > build/patcher/mod320/index.txt
 fi
 mkdir -p build/patcher-all && cp -r build/common/* build/patcher/* build/patcher-all/
 (cd build/patcher-all && "$JAR" xf ../../lib/asm-9.8.jar && "$JAR" xf ../../lib/asm-tree-9.8.jar && rm -rf META-INF module-info.class)
@@ -100,6 +111,10 @@ fi
 
 if [ -n "$GAME316_JAR" ] && [ -f "$GAME316_JAR" ]; then
   "$JAVA" -jar dist/TheWellosInfdevClientPatcher.jar "$GAME316_JAR" dist/inf-20100316-mp.jar
+fi
+
+if [ -n "$GAME320_JAR" ] && [ -f "$GAME320_JAR" ]; then
+  "$JAVA" -jar dist/TheWellosInfdevClientPatcher.jar "$GAME320_JAR" dist/inf-20100320-mp.jar
 fi
 
 echo "[5/8] plugin APIs (api/<build>/)"
@@ -123,6 +138,13 @@ cp -r build/api/* build/api316/* build/api316-all/
 cp -r build/api-src/* api/inf-20100316/src/* build/api316-src/
 "$JAR" cf dist/TheWellosInfdevServer-API-inf-20100316.jar -C build/api316-all .
 "$JAR" cf dist/TheWellosInfdevServer-API-inf-20100316-sources.jar -C build/api316-src .
+# inf-20100320: its own API (net.thewellodev.api320), made the same way
+mkdir -p build/api320 build/api320-all build/api320-src
+"$JAVAC" $JOPT -cp build/api -d build/api320 $(find api/inf-20100320/src -name '*.java')
+cp -r build/api/* build/api320/* build/api320-all/
+cp -r build/api-src/* api/inf-20100320/src/* build/api320-src/
+"$JAR" cf dist/TheWellosInfdevServer-API-inf-20100320.jar -C build/api320-all .
+"$JAR" cf dist/TheWellosInfdevServer-API-inf-20100320-sources.jar -C build/api320-src .
 # inf-20100313: its own API (net.thewellodev.api313), made the same way
 mkdir -p build/api313 build/api313-all build/api313-src
 "$JAVAC" $JOPT -cp build/api -d build/api313 $(find api/inf-20100313/src -name '*.java')
@@ -132,7 +154,7 @@ cp -r build/api-src/* api/inf-20100313/src/* build/api313-src/
 "$JAR" cf dist/TheWellosInfdevServer-API-inf-20100313-sources.jar -C build/api313-src .
 
 echo "[6/8] server"
-"$JAVAC" $JOPT -cp "$ASM${S}build/common${S}build/api${S}build/api227${S}build/api313${S}build/api316" -d build/server $(find server/src -name '*.java')
+"$JAVAC" $JOPT -cp "$ASM${S}build/common${S}build/api${S}build/api227${S}build/api313${S}build/api316${S}build/api320" -d build/server $(find server/src -name '*.java')
 "$JAVAC" $JOPT -cp "build/client-public.jar${S}build/common${S}build/server" -d build/bridge/bridge $(find server/bridge -name '*.java')
 if [ -n "$GAME227_JAR" ] && [ -f "$GAME227_JAR" ]; then
   echo "  bridge for inf-20100227-1433 (compiled against $GAME227_JAR)"
@@ -152,13 +174,19 @@ if [ -n "$GAME316_JAR" ] && [ -f "$GAME316_JAR" ]; then
 else
   echo "  inf-20100316 bridge skipped (set GAME316_JAR to the original 20100316 jar to include it)"
 fi
-mkdir -p build/server-all && cp -r build/common/* build/api/* build/api227/* build/api313/* build/api316/* build/server/* build/bridge/* build/server-all/
+if [ -n "$GAME320_JAR" ] && [ -f "$GAME320_JAR" ]; then
+  echo "  bridge for inf-20100320 (compiled against $GAME320_JAR)"
+  "$JAVAC" $JOPT -cp "$GAME320_JAR${S}build/common${S}build/server${S}build/bridge/bridge" -d build/bridge/bridge $(find server/bridge320 -name '*.java') server/bridge227/TW227Nbt.java server/bridgeshared/TWSeed.java
+else
+  echo "  inf-20100320 bridge skipped (set GAME320_JAR to the original 20100320 jar to include it)"
+fi
+mkdir -p build/server-all && cp -r build/common/* build/api/* build/api227/* build/api313/* build/api316/* build/api320/* build/server/* build/bridge/* build/server-all/
 (cd build/server-all && "$JAR" xf ../../lib/asm-9.8.jar && "$JAR" xf ../../lib/asm-tree-9.8.jar && rm -rf META-INF module-info.class)
 printf 'Main-Class: net.thewellodev.server.Main\n' > build/server.mf
 "$JAR" cfm dist/TheWellosInfdevServer.jar build/server.mf -C build/server-all .
 
 echo "[7/8] plugins (plugins/<build>/<plugin>/)"
-for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316; do
+for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316 inf-20100320; do
   mkdir -p "dist/plugins/$v"
   for dir in plugins/$v/*/; do
     name=$(basename "$dir")
@@ -182,11 +210,11 @@ cp release/README.txt release/THIRD-PARTY-LICENSES.txt lib/ASM-LICENSE.txt LICEN
 cp dist/TheWellosInfdevServer.jar release/server/start-server.bat release/server/start-server.sh release/server/server.properties "$OUT/server/"
 # Client patcher and the BetaCraft files (the bundle holds no Minecraft code: each user patches his own jar)
 cp dist/TheWellosInfdevClientPatcher.jar release/client/patch-client.bat release/client/patch-client.sh "$OUT/client/"
-for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316; do
+for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316 inf-20100320; do
   cp "release/client/$v-mp.json" "release/client/$v-mp.info" "$OUT/client/betacraft/"
 done
 # Plugins and APIs, one folder for each build
-for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316; do
+for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316 inf-20100320; do
   mkdir -p "$OUT/server/optional-plugins/$v" "$OUT/plugin-api/$v/example-plugin"
   cp dist/plugins/$v/*.jar "$OUT/server/optional-plugins/$v/"
   rm -f "$OUT/server/optional-plugins/$v/HelloPlugin.jar"
@@ -201,13 +229,13 @@ done
 # The patched game jars contain Minecraft code: they are never put into the bundle. They go to these folders if you ask.
 if [ -n "$PATCHED_CLIENTS_DIR" ]; then
   mkdir -p "$PATCHED_CLIENTS_DIR"
-  for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316; do
+  for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316 inf-20100320; do
     [ -f "dist/$v-mp.jar" ] && cp "dist/$v-mp.jar" "$PATCHED_CLIENTS_DIR/"
   done
 fi
 if [ -n "$BETACRAFT_DIR" ] && [ -d "$BETACRAFT_DIR/versions/jsons" ]; then
   echo "[9/9] install into BetaCraft: $BETACRAFT_DIR"
-  for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316; do
+  for v in inf-20100630-1340 inf-20100227-1433 inf-20100313 inf-20100316 inf-20100320; do
     if [ -f "dist/$v-mp.jar" ]; then
       cp "dist/$v-mp.jar" "$BETACRAFT_DIR/versions/"
       cp "release/client/$v-mp.json" "release/client/$v-mp.info" "$BETACRAFT_DIR/versions/jsons/"

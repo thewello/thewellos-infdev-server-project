@@ -12,6 +12,7 @@
   | `original/inf-20100227-1433.jar` | `inf-20100227-1433` (optional) |
   | `original/inf-20100313.jar` | `inf-20100313` (optional) |
   | `original/inf-20100316.jar` | `inf-20100316` (optional) |
+  | `original/inf-20100320.jar` | `inf-20100320` (optional) |
 
   The SHA-256 of each jar is listed in [MULTIVERSION.md](MULTIVERSION.md). A build whose jar is missing is skipped.
 - An LWJGL 2 jar as `lib/lwjgl.jar` (compile-time only; the jar from a BetaCraft or Minecraft launcher folder works).
@@ -23,7 +24,7 @@
 sh build.sh
 ```
 
-Environment variables (all optional): `CLIENT_JAR`, `GAME227_JAR`, `GAME313_JAR`, `GAME316_JAR` and `LWJGL_JAR` change the
+Environment variables (all optional): `CLIENT_JAR`, `GAME227_JAR`, `GAME313_JAR`, `GAME316_JAR`, `GAME320_JAR` and `LWJGL_JAR` change the
 input paths; `RELEASE_DIR` changes the output folder; `BETACRAFT_DIR` installs the patched clients into your BetaCraft
 folder (`.../.betacraft`); `PATCHED_CLIENTS_DIR` keeps the patched client jars in a folder of your choice.
 
@@ -50,7 +51,7 @@ The build runs these steps:
 
 Put the original jar of the build you want to run into the server folder, then start `TheWellosInfdevServer.jar` (see
 [SERVER.md](SERVER.md)). To try a client, start the patched jar with the launcher class of its build
-(`TWLauncher`, `TW227Launcher`, `TW313Launcher` or `TW316Launcher`; for example
+(`TWLauncher`, `TW227Launcher`, `TW313Launcher`, `TW316Launcher` or `TW320Launcher`; for example
 `java -Djava.library.path=<natives> -cp "inf-20100316-mp.jar;lwjgl.jar;lwjgl_util.jar;jinput.jar" TW316Launcher <name> --connect 127.0.0.1:25565`).
 
 ## Test aids
