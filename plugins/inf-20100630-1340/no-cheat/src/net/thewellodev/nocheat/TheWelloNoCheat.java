@@ -159,7 +159,7 @@ public class TheWelloNoCheat extends JavaPlugin implements Listener {
         if (exemptOps && p.isOp()) {
             return true;
         }
-        return exemptCreative && p.getGameMode() == 1;
+        return exemptCreative && p.getGameMode() != 0;
     }
 
     /**

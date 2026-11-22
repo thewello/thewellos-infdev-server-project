@@ -54,9 +54,13 @@ public class GameClassLoader extends ClassLoader {
             return new String[]{"net.minecraft.a.a.e", "net.minecraft.a.a.e.e", "net.minecraft.a.a.c.a.a",
                     "net.minecraft.a.a.c.a.c"};
         }
-        if (v == GameVersion.INF_20100320) {
+        if (v == GameVersion.INF_20100320 || v == GameVersion.INF_20100321) {
             return new String[]{"net.minecraft.a.a.f", "net.minecraft.a.a.e.e", "net.minecraft.a.a.c.a.a",
                     "net.minecraft.a.a.c.a.c"};
+        }
+        if (v == GameVersion.INF_20100325_1640) {
+            return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.a.b", "net.minecraft.a.a.a.b.a",
+                    "net.minecraft.a.a.a.b.c"};
         }
         return new String[]{"net.minecraft.a.a.e", "net.minecraft.a.a.f", "net.minecraft.a.a.c.a.a",
                 "net.minecraft.a.a.c.a.c"};
@@ -64,6 +68,9 @@ public class GameClassLoader extends ClassLoader {
 
     private static HookTransformer seedHooks(GameVersion v) {
         HookTransformer t = new HookTransformer();
+        if (v == GameVersion.INF_20100325_1640) {
+            addTickHooks(t);
+        }
         for (final String c : seededClasses(v)) {
             t.custom(c.replace('.', '/'), new HookTransformer.Custom() {
                 public boolean apply(org.objectweb.asm.tree.ClassNode cn) {
@@ -102,6 +109,53 @@ public class GameClassLoader extends ClassLoader {
         return t;
     }
 
+    /**
+     * Builds from inf-20100325-1640 on: the world class ticks blocks. The sweep of random block ticks around the player
+     * (a loop of 32000 tries in the world's tick method) is cut out, because the bridge does it over the loaded chunks;
+     * the methods that set a block and the method that adds an entity report to TWTick (see there).
+     */
+    private static void addTickHooks(HookTransformer t) {
+        final String world = "net/minecraft/a/a/g";
+        t.custom(world, new HookTransformer.Custom() {
+            public boolean apply(org.objectweb.asm.tree.ClassNode cn) {
+                boolean done = false;
+                for (org.objectweb.asm.tree.MethodNode m : cn.methods) {
+                    if (m.name.equals("f") && m.desc.equals("()V")) {
+                        for (org.objectweb.asm.tree.AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
+                            if (n.getOpcode() == org.objectweb.asm.Opcodes.SIPUSH
+                                    && ((org.objectweb.asm.tree.IntInsnNode) n).operand == 32000) {
+                                m.instructions.set(n, new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.ICONST_0));
+                                done = true;
+                                break;
+                            }
+                        }
+                    } else if ((m.name.equals("a") || m.name.equals("h")) && m.desc.equals("(IIII)Z")) {
+                        org.objectweb.asm.tree.InsnList il = new org.objectweb.asm.tree.InsnList();
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ILOAD, 1));
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ILOAD, 2));
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ILOAD, 3));
+                        il.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESTATIC, "TWTick",
+                                "changed", "(III)V", false));
+                        m.instructions.insert(il);
+                        done = true;
+                    } else if (m.name.equals("a") && m.desc.equals("(Lnet/minecraft/a/c/b;)V")) {
+                        org.objectweb.asm.tree.LabelNode cont = new org.objectweb.asm.tree.LabelNode();
+                        org.objectweb.asm.tree.InsnList il = new org.objectweb.asm.tree.InsnList();
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ALOAD, 1));
+                        il.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESTATIC, "TWTick",
+                                "entity", "(Ljava/lang/Object;)Z", false));
+                        il.add(new org.objectweb.asm.tree.JumpInsnNode(org.objectweb.asm.Opcodes.IFEQ, cont));
+                        il.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.RETURN));
+                        il.add(cont);
+                        m.instructions.insert(il);
+                        done = true;
+                    }
+                }
+                return done;
+            }
+        });
+    }
+
     /** A class that exists only in the given build's jar. */
     private static String probeEntry(GameVersion v) {
         if (v == GameVersion.INF_20100630_1340) {
@@ -109,6 +163,12 @@ public class GameClassLoader extends ClassLoader {
         }
         if (v == GameVersion.INF_20100313) {
             return "net/minecraft/a/a/f.class";
+        }
+        if (v == GameVersion.INF_20100325_1640) {
+            return "net/minecraft/a/a/g.class";
+        }
+        if (v == GameVersion.INF_20100321) {
+            return "net/minecraft/client/r.class";
         }
         if (v == GameVersion.INF_20100320) {
             return "net/minecraft/a/a/b/aj.class";
@@ -187,8 +247,9 @@ public class GameClassLoader extends ClassLoader {
     public void verifyHooks() throws IOException {
         try {
             if (version != GameVersion.INF_20100630_1340) {
-                loadClass(version == GameVersion.INF_20100313 || version == GameVersion.INF_20100320
-                        ? "net.minecraft.a.a.f" : "net.minecraft.a.a.e");
+                loadClass(version == GameVersion.INF_20100325_1640 ? "net.minecraft.a.a.g"
+                        : version == GameVersion.INF_20100313 || version == GameVersion.INF_20100320
+                        || version == GameVersion.INF_20100321 ? "net.minecraft.a.a.f" : "net.minecraft.a.a.e");
                 for (String c : seededClasses(version)) {
                     loadClass(c); // the generator classes are patched when they load
                 }

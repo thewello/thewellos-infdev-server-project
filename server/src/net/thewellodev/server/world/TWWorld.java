@@ -178,4 +178,79 @@ public class TWWorld implements World {
         checkThread();
         bridge.save(true);
     }
+
+    public List<? extends Player> getNearbyPlayers(Location center, double radius) {
+        final double cx = center.getX(), cy = center.getY(), cz = center.getZ();
+        double r2 = radius * radius;
+        List<Player> list = new ArrayList<Player>();
+        for (Player p : server.getOnlinePlayers()) {
+            Location l = p.getLocation();
+            double dx = l.getX() - cx, dy = l.getY() - cy, dz = l.getZ() - cz;
+            if (dx * dx + dy * dy + dz * dz <= r2) {
+                list.add(p);
+            }
+        }
+        java.util.Collections.sort(list, new java.util.Comparator<Player>() {
+            public int compare(Player a, Player b) {
+                Location la = a.getLocation(), lb = b.getLocation();
+                double da = (la.getX() - cx) * (la.getX() - cx) + (la.getY() - cy) * (la.getY() - cy)
+                        + (la.getZ() - cz) * (la.getZ() - cz);
+                double db = (lb.getX() - cx) * (lb.getX() - cx) + (lb.getY() - cy) * (lb.getY() - cy)
+                        + (lb.getZ() - cz) * (lb.getZ() - cz);
+                return Double.compare(da, db);
+            }
+        });
+        return list;
+    }
+
+    public int fill(int x1, int y1, int z1, int x2, int y2, int z2, int typeId, int data) {
+        checkThread();
+        int ax = Math.min(x1, x2), bx = Math.max(x1, x2), ay = Math.max(0, Math.min(y1, y2)),
+                by = Math.min(127, Math.max(y1, y2)), az = Math.min(z1, z2), bz = Math.max(z1, z2);
+        long volume = (long) (bx - ax + 1) * (by - ay + 1) * (bz - az + 1);
+        if (volume > 32768L) {
+            throw new IllegalArgumentException("The box has " + volume + " blocks; the limit is 32768");
+        }
+        int changed = 0;
+        for (int x = ax; x <= bx; x++) {
+            for (int z = az; z <= bz; z++) {
+                for (int y = ay; y <= by; y++) {
+                    if (getBlockTypeIdAt(x, y, z) == typeId && getBlockDataAt(x, y, z) == data) {
+                        continue;
+                    }
+                    if (setBlockTypeIdAndData(x, y, z, typeId, data)) {
+                        changed++;
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+
+    public int getDayLength() {
+        return "inf-20100313".equals(server.getGameVersion()) ? 12000 : 24000;
+    }
+
+    public boolean isDay() {
+        long day = getDayLength();
+        long t = getTime() % day;
+        if (t < 0) {
+            t += day;
+        }
+        return t < day * 13 / 24;
+    }
+
+    public boolean isNight() {
+        return !isDay();
+    }
+
+    public int getBlockLightAt(int x, int y, int z) {
+        checkThread();
+        return bridge.getRawLight(x, y, z, false);
+    }
+
+    public int getSkyLightAt(int x, int y, int z) {
+        checkThread();
+        return bridge.getRawLight(x, y, z, true);
+    }
 }

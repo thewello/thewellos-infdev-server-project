@@ -929,6 +929,30 @@ public final class TW320Client {
     private static Field healthField, hurtTime, hurtTimeMax, motionY, itemTable;
     private static Method hurtMethod, respawnMethod, itemDamage;
     private static int gameMode;
+    private static Field noClipField;
+
+    /** Hook (see ClientPatcher.addGameModeHooks): nothing hurts the player of this game in the game modes 1 and 2. */
+    public static boolean noDamage(Object entity) {
+        try {
+            if (gameMode == 0 || mcRef == null) {
+                return false;
+            }
+            Object w = mcWorld.get(mcRef);
+            return w != null && entity == worldPlayer.get(w);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Hook: the digging controller breaks blocks at once (creative). */
+    public static boolean creative() {
+        return gameMode == 1;
+    }
+
+    /** Hook: the digging controller does nothing (spectator). */
+    public static boolean spectator() {
+        return gameMode == 2;
+    }
     private static int lastHealthSent = -1;
     private static boolean deadReported;
     private static boolean mouseWasDown;
@@ -972,8 +996,9 @@ public final class TW320Client {
             System.out.println(String.format("[Infdev MP] pos %.2f %.2f %.2f hp %d", posX.getDouble(player),
                     posY.getDouble(player), posZ.getDouble(player), hp));
         }
-        if (gameMode == 1 && hp > 0 && hp < 20) {
-            healthField.setInt(player, 20); // creative: nothing hurts
+        noClipField.setBoolean(player, gameMode == 2); // the spectator goes through walls
+        if (gameMode != 0 && hp > 0 && hp < 20) {
+            healthField.setInt(player, 20); // creative and spectator: nothing hurts (see noDamage)
             hp = 20;
         }
         if (lastHealthSent < 0 || hp < lastHealthSent) {
@@ -988,10 +1013,13 @@ public final class TW320Client {
             return;
         }
         boolean free = screenField.get(mc) == null && !chatOpen;
-        if (gameMode == 1) {
-            fallField.setFloat(player, 0f); // creative: no fall damage
+        if (gameMode != 0) {
+            fallField.setFloat(player, 0f); // creative and spectator: no fall damage
         }
-        if (gameMode == 1 && free) {
+        if (gameMode == 2) {
+            flying = true; // the spectator always flies
+        }
+        if (gameMode != 0 && free) {
             // double tap on space switches flying on and off; space goes up, shift goes down
             boolean space = org.lwjgl.input.Keyboard.isKeyDown(org.lwjgl.input.Keyboard.KEY_SPACE);
             if (space && !spaceWasDown) {
@@ -1011,7 +1039,7 @@ public final class TW320Client {
                 } else if (org.lwjgl.input.Keyboard.isKeyDown(org.lwjgl.input.Keyboard.KEY_LSHIFT)) {
                     vy = -0.45;
                 }
-                if (vy < 0 && onGround.getBoolean(player)) {
+                if (vy < 0 && onGround.getBoolean(player) && gameMode == 1) {
                     flying = false; // landed
                 } else {
                     motionY.setDouble(player, vy);
@@ -1101,7 +1129,7 @@ public final class TW320Client {
         if (DEBUG) {
             System.out.println("[Infdev MP] damage " + p.i2 + " from " + p.i1);
         }
-        if (player == null || gameMode == 1 || health(player) <= 0) {
+        if (player == null || gameMode != 0 || health(player) <= 0) {
             return;
         }
         Object attacker = null;
@@ -1151,8 +1179,10 @@ public final class TW320Client {
 
     private static void onGameMode(int mode) {
         gameMode = mode;
-        flying = false;
-        addChat(mode == 1 ? "&eGame mode: &fCreative (fly with space / shift)" : "&eGame mode: &fSurvival");
+        flying = mode == 2;
+        addChat(mode == 1 ? "&eGame mode: &fCreative (fly with space / shift, blocks break at once, nothing hurts)"
+                : mode == 2 ? "&eGame mode: &fSpectator (invisible, fly through walls with space / shift, nothing interacts)"
+                : "&eGame mode: &fSurvival");
     }
 
     /** End of the death screen's init: the first button respawns, loading does not exist online. */
@@ -1249,6 +1279,22 @@ public final class TW320Client {
      * items can be thrown); the server passes them on, so everybody sees all of them.
      */
     public static void onEntityAdd(Object entity) {
+        if (entity != null && connected() && mobKind(entity.getClass()) == ARROW_KIND) {
+            try {
+                Object w = mcRef == null ? null : mcWorld.get(mcRef);
+                if (w != null && arrowShooter.get(entity) == worldPlayer.get(w)) {
+                    synchronized (ownArrows) {
+                        ownArrows.add(entity); // an arrow of this player: it can hurt the others
+                    }
+                }
+            } catch (Exception ignored) {
+                // the arrow is only shown then
+            }
+            synchronized (mobPending) {
+                mobPending.add(entity);
+            }
+            return;
+        }
         if (entity != null && connected() && mobKind(entity.getClass()) >= 0) {
             if (adoptNumber != 0) {
                 ownMobs.put(entity, new int[]{adoptNumber, mobKind(entity.getClass())}); // a mob taken over: same number
@@ -1307,12 +1353,12 @@ public final class TW320Client {
         return true;
     }
 
-    private static void onClaimResult(int number, boolean ok) {
+    private static void onClaimResult(int number, int code) {
         Object e = dropByNumber.get(number);
-        if (e == null) {
-            return;
+        if (e == null || code == 2) {
+            return; // code 2: a plugin refused for now; the item stays and is asked for again later
         }
-        if (ok) {
+        if (code == 1) {
             claimGranted.add(e);
         } else {
             forgetDrop(e, number); // somebody else got it
@@ -1329,6 +1375,22 @@ public final class TW320Client {
         dropByNumber.remove(number);
         claimSent.remove(e);
         claimGranted.remove(e);
+    }
+
+    /** The server asks for the own items again (a player joined, or time passed): every item of this game is announced once more. */
+    private static void onDropResync(TWConnection c) throws Exception {
+        for (java.util.Map.Entry<Object, int[]> en : new java.util.ArrayList<java.util.Map.Entry<Object, int[]>>(dropTracked.entrySet())) {
+            Object e = en.getKey();
+            if (en.getValue()[1] != 0 || entDead.getBoolean(e)) {
+                continue; // a copy of somebody else's item, or an item that is gone
+            }
+            Object stack = stackOfItem.get(e);
+            if (stack != null) {
+                c.sendDropSpawn(en.getValue()[0], stackId.getInt(stack), stackCount.getInt(stack), stackDamage.getInt(stack),
+                        new double[]{posX.getDouble(e), posY.getDouble(e), posZ.getDouble(e), entMotX.getDouble(e),
+                                entMotY.getDouble(e), entMotZ.getDouble(e)});
+            }
+        }
     }
 
     private static void dropTick(TWConnection c) throws Exception {
@@ -1698,7 +1760,14 @@ public final class TW320Client {
     // ----- mobs that an arrow makes (shared between the players) ------------------------------------------------
 
     private static final String[] MOB_CLASS_NAMES = {"net.minecraft.a.c.a.f", "net.minecraft.a.c.a.c",
-            "net.minecraft.a.c.a.d", "net.minecraft.a.c.a.b", "net.minecraft.a.c.b.c", "net.minecraft.a.c.b.b"};
+            "net.minecraft.a.c.a.d", "net.minecraft.a.c.a.b", "net.minecraft.a.c.b.c", "net.minecraft.a.c.b.b",
+            "net.minecraft.a.c.c.a", "net.minecraft.a.c.d.a"};
+    /** The kind number of the primed TNT (the other kinds are the mobs): it is shown to the other players like a mob. */
+    private static final int TNT_KIND = 6;
+    private static Field tntFuse;
+    /** The kind number of an arrow in flight (any arrow of this game: a player's, a skeleton's): shown to the others too. */
+    private static final int ARROW_KIND = 7;
+    private static Field arrowShake;
     private static Class<?>[] mobClasses;
     private static Constructor<?>[] mobCtors;
     private static Method entSetPos, entHurt;
@@ -1738,18 +1807,30 @@ public final class TW320Client {
             }
         }
         boolean update = ++mobTicks % 3 == 0;
+        boolean fast = true; // an arrow flies fast: it is reported every tick
         for (java.util.Iterator<java.util.Map.Entry<Object, int[]>> it = ownMobs.entrySet().iterator(); it.hasNext();) {
             java.util.Map.Entry<Object, int[]> en = it.next();
             if (entDead.getBoolean(en.getKey())) {
                 c.sendMobRemove(en.getValue()[0], true);
                 it.remove();
-            } else if (update) {
+            } else if (update || (fast && en.getValue()[1] == ARROW_KIND)) {
                 sendMob(c, en.getValue(), en.getKey());
             }
         }
     }
 
     private static void sendMob(TWConnection c, int[] v, Object e) throws Exception {
+        if (v[1] == ARROW_KIND) {
+            c.sendMobState(v[0], v[1], posX.getDouble(e), posY.getDouble(e), posZ.getDouble(e), rotYaw.getFloat(e),
+                    rotPitch.getFloat(e), 0f, 0f, 0f, 0, 0, Math.max(0, Math.min(1000, arrowShake.getInt(e))) << 8);
+            return;
+        }
+        if (v[1] == TNT_KIND) {
+            // a primed TNT: its place and how long the fuse still burns (in the place of the health)
+            c.sendMobState(v[0], v[1], posX.getDouble(e), posY.getDouble(e), posZ.getDouble(e), 0f, 0f, 0f, 0f, 0f, 0, 0,
+                    Math.max(0, Math.min(1000, tntFuse.getInt(e))) << 8);
+            return;
+        }
         int hurt = Math.max(0, Math.min(255, hurtTime.getInt(e)));
         int death = Math.max(0, Math.min(255, entDeath.getInt(e)));
         int health = Math.max(0, Math.min(1000, healthField.getInt(e)));
@@ -1772,7 +1853,9 @@ public final class TW320Client {
             if (mobCopies.size() >= 80) {
                 return;
             }
-            e = mobCtors[p.i2].newInstance(world);
+            e = p.i2 == TNT_KIND ? mobCtors[p.i2].newInstance(world, (float) p.x, (float) p.y, (float) p.z)
+                    : p.i2 == ARROW_KIND ? mobCtors[p.i2].newInstance(world, worldPlayer.get(world))
+                    : mobCtors[p.i2].newInstance(world);
             if (DEBUG) {
                 System.out.println("[Infdev MP] mob of another player: kind " + p.i2 + " #" + p.i1);
             }
@@ -1781,12 +1864,20 @@ public final class TW320Client {
             ent_A.setDouble(e, p.x);
             ent_B.setDouble(e, p.y);
             ent_C.setDouble(e, p.z);
-            rotYaw.setFloat(e, p.yaw);
-            rotPitch.setFloat(e, p.pitch);
-            ent_o.setFloat(e, p.yaw);
-            ent_p.setFloat(e, p.pitch);
-            ent_T.setFloat(e, (float) p.mx);
-            ent_U.setFloat(e, (float) p.mx);
+            if (p.i2 == ARROW_KIND) {
+                rotYaw.setFloat(e, p.yaw);
+                rotPitch.setFloat(e, p.pitch);
+                ent_o.setFloat(e, p.yaw);
+                ent_p.setFloat(e, p.pitch);
+            }
+            if (p.i2 < TNT_KIND) {
+                rotYaw.setFloat(e, p.yaw);
+                rotPitch.setFloat(e, p.pitch);
+                ent_o.setFloat(e, p.yaw);
+                ent_p.setFloat(e, p.pitch);
+                ent_T.setFloat(e, (float) p.mx);
+                ent_U.setFloat(e, (float) p.mx);
+            }
         }
         mobTargets.put(p.i1, mobTarget(p));
     }
@@ -1807,6 +1898,22 @@ public final class TW320Client {
             ent_A.setDouble(e, x);
             ent_B.setDouble(e, y);
             ent_C.setDouble(e, z);
+            if (mobKind(e.getClass()) == ARROW_KIND) {
+                ent_o.setFloat(e, rotYaw.getFloat(e));
+                ent_p.setFloat(e, rotPitch.getFloat(e));
+                entSetPos.invoke(e, x + (t[0] - x) * 0.6, y + (t[1] - y) * 0.6, z + (t[2] - z) * 0.6);
+                rotYaw.setFloat(e, (float) t[3]);
+                rotPitch.setFloat(e, (float) t[4]);
+                arrowShake.setInt(e, (int) t[11]);
+                continue;
+            }
+            if (mobKind(e.getClass()) == TNT_KIND) {
+                double tx = t[0] - x, ty = t[1] - y, tz = t[2] - z;
+                double f = tx * tx + ty * ty + tz * tz > 64 ? 1.0 : 0.3;
+                entSetPos.invoke(e, x + tx * f, y + ty * f, z + tz * f);
+                tntFuse.setInt(e, (int) t[11]);
+                continue;
+            }
             float yaw = rotYaw.getFloat(e), pitch = rotPitch.getFloat(e), body = ent_T.getFloat(e);
             ent_o.setFloat(e, yaw);
             ent_p.setFloat(e, pitch);
@@ -1829,7 +1936,7 @@ public final class TW320Client {
 
     /** The server hands a mob over (its owner left): the copy becomes the real mob of this game, under the same number. */
     private static void onMobAdopt(Object world, TWConnection.Pkt p) throws Exception {
-        if (p.i2 < 0 || p.i2 >= mobCtors.length) {
+        if (p.i2 < 0 || p.i2 >= mobCtors.length || p.i2 >= TNT_KIND) {
             return;
         }
         removeMobCopies(p.i1);
@@ -1869,7 +1976,7 @@ public final class TW320Client {
     /** Another player hit the copy of a mob of this game: the real mob is hurt. */
     private static void onMobHit(TWConnection.Pkt p) throws Exception {
         for (java.util.Map.Entry<Object, int[]> en : ownMobs.entrySet()) {
-            if (en.getValue()[0] == p.i1 && !entDead.getBoolean(en.getKey())) {
+            if (en.getValue()[0] == p.i1 && en.getValue()[1] < TNT_KIND && !entDead.getBoolean(en.getKey())) {
                 Object attacker = null;
                 synchronized (remotes) {
                     Remote r = remotes.get(p.i3);
@@ -2446,7 +2553,9 @@ public final class TW320Client {
             // test aid (kind,dx,dz): a mob appears near the player, like the one an arrow makes (kind 0 to 5)
             System.clearProperty("thewellodev.testmob");
             String[] v = testMob.split(",");
-            Object mob = mobCtors[Integer.parseInt(v[0].trim())].newInstance(world);
+            int testKind = Integer.parseInt(v[0].trim());
+            Object mob = testKind == TNT_KIND ? mobCtors[testKind].newInstance(world, (float) posX.getDouble(player),
+                    (float) posY.getDouble(player) + 3f, (float) posZ.getDouble(player)) : mobCtors[testKind].newInstance(world);
             setPosRot.invoke(mob, posX.getDouble(player) + Double.parseDouble(v[1].trim()), posY.getDouble(player) + (v.length > 3 ? Double.parseDouble(v[3].trim()) : 0),
                     posZ.getDouble(player) + Double.parseDouble(v[2].trim()), 0f, 0f);
             worldAddEntity.invoke(world, mob);
@@ -2567,8 +2676,11 @@ public final class TW320Client {
             case Protocol.MOB_RELEASE:
                 onMobRelease(p.i1);
                 break;
+            case Protocol.DROP_RESYNC:
+                onDropResync(c);
+                break;
             case Protocol.DROP_CLAIM_RESULT:
-                onClaimResult(p.i1, p.i2 != 0);
+                onClaimResult(p.i1, p.i2);
                 break;
             case Protocol.SLOT:
                 onSlot(p);
@@ -2809,6 +2921,7 @@ public final class TW320Client {
         playerCtor = humanC.getConstructor(worldC);
         nameField = access(humanC, "R");
         ent_u = playerC.getField("u");
+        noClipField = playerC.getField("E");
         ent_A = playerC.getField("A");
         ent_B = playerC.getField("B");
         ent_C = playerC.getField("C");
@@ -2883,7 +2996,14 @@ public final class TW320Client {
         mobCtors = new Constructor<?>[MOB_CLASS_NAMES.length];
         for (int i = 0; i < MOB_CLASS_NAMES.length; i++) {
             mobClasses[i] = Class.forName(MOB_CLASS_NAMES[i], true, cl);
-            mobCtors[i] = mobClasses[i].getConstructor(worldC);
+            if (i == TNT_KIND) {
+                tntFuse = mobClasses[i].getField("a");
+            }
+            if (i == ARROW_KIND) {
+                arrowShake = mobClasses[i].getField("a");
+            }
+            mobCtors[i] = i == TNT_KIND ? mobClasses[i].getConstructor(worldC, float.class, float.class, float.class)
+                    : i == ARROW_KIND ? mobClasses[i].getConstructor(worldC, livingC) : mobClasses[i].getConstructor(worldC);
         }
         arrowC = Class.forName("net.minecraft.a.c.d.a", true, cl);
         livingC316 = livingC;

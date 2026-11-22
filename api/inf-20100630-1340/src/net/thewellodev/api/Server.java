@@ -9,6 +9,7 @@ import net.thewellodev.api.scheduler.Scheduler;
 
 import java.io.File;
 import java.util.Collection;
+import java.util.List;
 import java.util.logging.Logger;
 
 /** A running TheWello's Infdev Server. */
@@ -86,4 +87,25 @@ public interface Server {
 
     /** Shuts the server down cleanly. */
     void shutdown();
+
+    /** The names of the operators. */
+    Collection<String> getOperators();
+
+    /** The names of the banned players. */
+    Collection<String> getBannedPlayers();
+
+    /** The names on the white list. */
+    Collection<String> getWhitelistedPlayers();
+
+    /**
+     * Sends a message to every online player that has the permission, and to the console.
+     * @return the number of players that got it
+     */
+    int broadcastMessage(String message, String permission);
+
+    /** The online players whose name starts with (or, when none does, contains) the text, ignoring case. */
+    List<? extends Player> matchPlayers(String partialName);
+
+    /** How long the server has been running, in milliseconds. */
+    long getUptimeMillis();
 }

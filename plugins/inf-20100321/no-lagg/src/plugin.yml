@@ -1,0 +1,12 @@
+name: TheWelloNoLagg
+version: 1.0
+api: inf-20100321
+main: net.thewellodev.nolagg.TheWelloNoLagg
+author: TheWello
+description: Keeps a server healthy - memory guard, chunk watch and low TPS alerts.
+commands:
+  nolagg:
+    description: Lag prevention tools
+    usage: /<command> status | gc | save
+    aliases: [lag, tnl]
+    permission: thewellonolagg.admin

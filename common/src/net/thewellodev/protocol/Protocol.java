@@ -176,7 +176,7 @@ public final class Protocol {
     public static final int MOB_ADOPT = 0x3B;
     /** Client to server: this game wants to pick up the shared item with this number. Body: int number. */
     public static final int DROP_CLAIM = 0x3C;
-    /** Server to client: answer to DROP_CLAIM. Body: int number, byte 1 = the item is yours (the first one asked gets it). */
+    /** Server to client: answer to DROP_CLAIM. Body: int number, byte: 0 = somebody else has it, 1 = the item is yours (the first one asked gets it), 2 = refused for now (a plugin said no; the item stays and the game may ask again). */
     public static final int DROP_CLAIM_RESULT = 0x3D;
     /**
      * Server to client (builds 316 and 320), after the login: int slot, int first number. The numbers of the items and mobs
@@ -189,6 +189,13 @@ public final class Protocol {
      * from the states of the new owner.
      */
     public static final int MOB_RELEASE = 0x3F;
+    /**
+     * Server to client (builds 316 and later), no body: send DROP_SPAWN again for every item of your own game that is still
+     * lying about. The server asks when a player has joined (he saw none of the items that were already there) and
+     * once a minute (players walk into range of items that were made when they were far away). A game that already has
+     * the item ignores the copy.
+     */
+    public static final int DROP_RESYNC = 0x40;
     /** S->C: byte difficulty (0 peaceful, 1 easy, 2 normal, 3 hard) */
     public static final int DIFFICULTY = 0x23;
 

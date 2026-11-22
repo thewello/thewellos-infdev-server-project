@@ -163,4 +163,32 @@ public final class Server320Impl implements Server320 {
     public void shutdown() {
         server.shutdown();
     }
+
+    public Collection<String> getOperators() {
+        return server.getOperators();
+    }
+
+    public Collection<String> getBannedPlayers() {
+        return server.getBannedPlayers();
+    }
+
+    public Collection<String> getWhitelistedPlayers() {
+        return server.getWhitelistedPlayers();
+    }
+
+    public int broadcastMessage(String message, String permission) {
+        return server.broadcastMessage(message, permission);
+    }
+
+    public List<? extends Player320> matchPlayers(String partialName) {
+        List<Player320> list = new ArrayList<Player320>();
+        for (Player p : server.matchPlayers(partialName)) {
+            list.add(api.player(p));
+        }
+        return list;
+    }
+
+    public long getUptimeMillis() {
+        return server.getUptimeMillis();
+    }
 }

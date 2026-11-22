@@ -2,6 +2,7 @@ package net.thewellodev.server.api227;
 
 import net.thewellodev.api.Server;
 import net.thewellodev.api.entity.Player;
+import net.thewellodev.api227.Block227;
 import net.thewellodev.api227.Location227;
 import net.thewellodev.api227.Player227;
 import net.thewellodev.api227.World227;
@@ -134,5 +135,18 @@ final class Player227Impl implements Player227 {
     @Override
     public String toString() {
         return "Player227{" + handle.getName() + "}";
+    }
+
+    public Location227 getEyeLocation() {
+        return api.location(handle.getEyeLocation());
+    }
+
+    public Block227 getTargetBlock(int maxDistance) {
+        net.thewellodev.api.block.Block b = handle.getTargetBlock(maxDistance);
+        return b == null ? null : api.block(b);
+    }
+
+    public long getLoginTime() {
+        return handle.getLoginTime();
     }
 }

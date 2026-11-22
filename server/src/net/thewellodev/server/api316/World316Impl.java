@@ -102,4 +102,39 @@ final class World316Impl implements World316 {
     public int hashCode() {
         return System.identityHashCode(handle);
     }
+
+    public List<? extends Player316> getNearbyPlayers(Location316 center, double radius) {
+        List<Player316> list = new ArrayList<Player316>();
+        for (Player p : handle.getNearbyPlayers(api.toServer(center), radius)) {
+            list.add(api.player(p));
+        }
+        return list;
+    }
+
+    public int fill(int x1, int y1, int z1, int x2, int y2, int z2, int typeId, int data) {
+        if (!isValidBlock(typeId)) {
+            throw new IllegalArgumentException("Block " + typeId + " does not exist in this build");
+        }
+        return handle.fill(x1, y1, z1, x2, y2, z2, typeId, data);
+    }
+
+    public int getDayLength() {
+        return handle.getDayLength();
+    }
+
+    public boolean isDay() {
+        return handle.isDay();
+    }
+
+    public boolean isNight() {
+        return handle.isNight();
+    }
+
+    public int getBlockLightAt(int x, int y, int z) {
+        return handle.getBlockLightAt(x, y, z);
+    }
+
+    public int getSkyLightAt(int x, int y, int z) {
+        return handle.getSkyLightAt(x, y, z);
+    }
 }

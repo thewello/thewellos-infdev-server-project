@@ -163,4 +163,32 @@ public final class Server316Impl implements Server316 {
     public void shutdown() {
         server.shutdown();
     }
+
+    public Collection<String> getOperators() {
+        return server.getOperators();
+    }
+
+    public Collection<String> getBannedPlayers() {
+        return server.getBannedPlayers();
+    }
+
+    public Collection<String> getWhitelistedPlayers() {
+        return server.getWhitelistedPlayers();
+    }
+
+    public int broadcastMessage(String message, String permission) {
+        return server.broadcastMessage(message, permission);
+    }
+
+    public List<? extends Player316> matchPlayers(String partialName) {
+        List<Player316> list = new ArrayList<Player316>();
+        for (Player p : server.matchPlayers(partialName)) {
+            list.add(api.player(p));
+        }
+        return list;
+    }
+
+    public long getUptimeMillis() {
+        return server.getUptimeMillis();
+    }
 }

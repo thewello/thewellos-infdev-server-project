@@ -35,6 +35,8 @@ public class TWPlayer implements Player {
     public float yaw, pitch;
     public boolean onGround;
     public boolean joined;
+    /** Builds 316 and later: the numbers of the server's own items that this player was told about. */
+    public final java.util.Set<Integer> seenServerDrops = new java.util.HashSet<Integer>();
 
     /** Chunks sent to the client. */
     public final Set<Long> loadedChunks = new HashSet<Long>();
@@ -276,8 +278,9 @@ public class TWPlayer implements Player {
     }
 
     public void setGameMode(int mode) {
-        gameMode = mode == 1 ? 1 : 0;
+        gameMode = mode == 1 ? 1 : mode == 2 && server.hasSpectatorMode() ? 2 : 0;
         connection.sendGameMode(gameMode);
+        server.onGameModeChanged(this);
     }
 
     public void sendMessage(String message) {
@@ -306,5 +309,45 @@ public class TWPlayer implements Player {
     @Override
     public String toString() {
         return "TWPlayer{" + name + "}";
+    }
+
+    public Location getEyeLocation() {
+        return new Location(server.getWorld(), x, y + EYE_HEIGHT, z, yaw, pitch);
+    }
+
+    public net.thewellodev.api.block.Block getTargetBlock(int maxDistance) {
+        int max = Math.max(1, Math.min(100, maxDistance));
+        double yr = Math.toRadians(yaw), pr = Math.toRadians(pitch);
+        double dx = -Math.sin(yr) * Math.cos(pr), dy = -Math.sin(pr), dz = Math.cos(yr) * Math.cos(pr);
+        World w = server.getWorld();
+        double ex = x, ey = y + EYE_HEIGHT, ez = z;
+        int lastX = Integer.MIN_VALUE, lastY = 0, lastZ = 0;
+        for (double t = 0.0; t <= max; t += 0.05) {
+            int bx = (int) Math.floor(ex + dx * t), by = (int) Math.floor(ey + dy * t), bz = (int) Math.floor(ez + dz * t);
+            if (bx == lastX && by == lastY && bz == lastZ) {
+                continue;
+            }
+            lastX = bx;
+            lastY = by;
+            lastZ = bz;
+            if (by < 0 || by > 127) {
+                if (by < 0 && dy < 0 || by > 127 && dy > 0) {
+                    return null;
+                }
+                continue;
+            }
+            if (!w.isChunkLoaded(bx >> 4, bz >> 4)) {
+                return null;
+            }
+            int id = w.getBlockTypeIdAt(bx, by, bz);
+            if (id != 0 && id != 8 && id != 9 && id != 10 && id != 11) {
+                return w.getBlockAt(bx, by, bz);
+            }
+        }
+        return null;
+    }
+
+    public long getLoginTime() {
+        return connection == null ? 0L : connection.getConnectedAt();
     }
 }

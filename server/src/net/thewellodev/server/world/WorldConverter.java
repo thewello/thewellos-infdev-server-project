@@ -38,6 +38,11 @@ import java.util.logging.Logger;
  * <li>inf-20100316 -> inf-20100320 (also 313 and 227 -> 320): the same chunk files. The generator of 320 adds trees and ores:
  *     the chunks that are taken over keep what they have (they count as populated), and land made after the takeover
  *     is generated with the new terrain, so it differs from the converted land at its edges.</li>
+ * <li>inf-20100320 -> inf-20100321 (also 316, 313 and 227 -> 321): the world code of the two builds is identical, so 320 is
+ *     taken over without any change in terrain; the older ones are taken over as into 320.</li>
+ * <li>inf-20100321 -> inf-20100325-1640 (also 320, 316, 313 and 227): the same chunk files. The generator of 325-1640 adds
+ *     caves and ore blobs: the chunks that are taken over keep what they have, new land has the caves, so the edge of the
+ *     converted part is visible.</li>
  * </ul>
  * A new build is added with one more case in {@link #supportsStep}, and the bridge of the build converts the chunk it
  * reads from the old folder. What cannot be carried over: the terrain generators of the builds differ, so land
@@ -76,6 +81,9 @@ public final class WorldConverter {
                 return null;
             }
             try {
+                // a world that is itself only partly taken over from an older build: its remaining chunks are taken
+                // over first, so that the new world finds every chunk in the folder it reads
+                completeAncestors(worldsDir, src, level, log, 0);
                 createFrom(src, targetDir, order[i]);
             } catch (IOException ex) {
                 log.severe("The world could not be taken over from " + order[i].id + ": " + ex);
@@ -86,6 +94,41 @@ public final class WorldConverter {
             return src;
         }
         return null;
+    }
+
+    /**
+     * If the world in {@code dir} is still being taken over from an older build, copies the chunks it does not have yet from
+     * there (the older world first, when it is incomplete too) and marks it complete. Without this a world taken over
+     * twice in a row (for example 316, then 320, then 321) would lose the chunks that nobody had visited in the middle build.
+     */
+    private static void completeAncestors(File worldsDir, File dir, String level, Logger log, int depth)
+            throws IOException {
+        Properties p = readMarker(dir);
+        if (p == null || "true".equals(p.getProperty("complete")) || depth > 8) {
+            return;
+        }
+        File from = new File(new File(worldsDir, p.getProperty("from", "")), level);
+        if (!hasWorld(from)) {
+            return; // the older world is gone: nothing more can be taken over
+        }
+        completeAncestors(worldsDir, from, level, log, depth + 1);
+        File[] files = from.listFiles();
+        int copied = 0;
+        if (files != null) {
+            for (File f : files) {
+                String n = f.getName();
+                if (f.isFile() && n.startsWith("c.") && n.endsWith(".dat")) {
+                    File mine = new File(dir, n);
+                    if (!mine.exists()) {
+                        copyFile(f, mine);
+                        copied++;
+                    }
+                }
+            }
+        }
+        markComplete(dir);
+        log.info("The world '" + level + "' of " + dir.getParentFile().getName() + " was still being taken over from "
+                + p.getProperty("from") + ": " + copied + " more chunks were copied before the next takeover.");
     }
 
     /** The old folder of a world that was taken over and is not complete, or null. */
@@ -108,6 +151,20 @@ public final class WorldConverter {
 
     /** Whether a chunk of the older build can be used by the newer one. */
     public static boolean supportsStep(GameVersion from, GameVersion to) {
+        if (to == GameVersion.INF_20100325_1640) {
+            // 321 (and 320, 316, 313, 227) -> 325-1640: the same chunk files. The generator of 325 makes caves and ore blobs, so
+            // land made after the takeover differs from the converted land at its edges; the chunks that are taken over
+            // are not changed (they count as populated)
+            return from == GameVersion.INF_20100321 || from == GameVersion.INF_20100320
+                    || from == GameVersion.INF_20100316 || from == GameVersion.INF_20100313
+                    || from == GameVersion.INF_20100227_1433;
+        }
+        if (to == GameVersion.INF_20100321) {
+            // 320 -> 321: the world code is the same in both builds (checked in the jars), so the chunks are read as they are;
+            // from 316, 313 and 227 the same as into 320
+            return from == GameVersion.INF_20100320 || from == GameVersion.INF_20100316
+                    || from == GameVersion.INF_20100313 || from == GameVersion.INF_20100227_1433;
+        }
         if (to == GameVersion.INF_20100320) {
             // 316 -> 320 (and 313, 227 -> 320): the same chunk files. The terrain generator of 320 adds trees and ores, so land
             // made after the takeover differs from the converted land at its edges; the chunks that are taken over are

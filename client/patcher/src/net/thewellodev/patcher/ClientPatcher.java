@@ -11,6 +11,7 @@ import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
@@ -197,22 +198,229 @@ public class ClientPatcher {
         HookTransformer t = createTransformerInfdev("TW316Client", true, "net/minecraft/a/a/e", "b", "a");
         addEntityAddHook(t, "TW316Client", "net/minecraft/a/a/e");
         addItemPickupHook(t, "TW316Client");
+        addGameModeHooks(t, "TW316Client");
         return t;
+    }
+
+    /**
+     * Hooks for inf-20100321: the game world is the code of 20100320, so the hooks are the same. The client changed: the
+     * tick method is g, the title screen is r, and the session check of the game is switched off (see
+     * createTransformerInfdev).
+     */
+    public static HookTransformer createTransformer321() {
+        return createTransformer320(true);
+    }
+
+    public static HookTransformer createTransformer320() {
+        return createTransformer320(false);
     }
 
     /**
      * Hooks for inf-20100320: the world class is f again; the set-block method that notifies the renderer is c(IIII)Z
      * and the set-metadata method is b(IIII)V. Besides the hooks of 20100316 it reports explosions.
      */
-    public static HookTransformer createTransformer320() {
-        HookTransformer t = createTransformerInfdev("TW320Client", true, "net/minecraft/a/a/f", "c", "b");
-        addEntityAddHook(t, "TW320Client", "net/minecraft/a/a/f");
-        addItemPickupHook(t, "TW320Client");
+    private static HookTransformer createTransformer320(boolean is321) {
+        final String H = is321 ? "TW321Client" : "TW320Client";
+        HookTransformer t = is321
+                ? createTransformerInfdev(H, true, "net/minecraft/a/a/f", "c", "b", "g", "net/minecraft/client/r", true)
+                : createTransformerInfdev(H, true, "net/minecraft/a/a/f", "c", "b");
+        addLateHooks(t, H, "net/minecraft/a/a/f", "net/minecraft/a/a/b/a", "net/minecraft/a/a/b/s");
+        return t;
+    }
+
+    /**
+     * Hooks for inf-20100325-1640. The obfuscated names moved (world class g, blocks in a/a/c, title screen q) and the
+     * world runs block ticks again. The server is the only one that ticks blocks (a leaf that decays, fire that
+     * spreads): the client removes the scheduled ticks and the random ticks around the player from the world's tick
+     * method, and the server sends what they changed.
+     */
+    public static HookTransformer createTransformer325() {
+        final String H = "TW325Client";
+        final String W = "net/minecraft/a/a/g";
+        HookTransformer t = createTransformerInfdev(H, true, W, "c", "b", "f", "net/minecraft/client/q", false, true);
+        addLateHooks(t, H, W, "net/minecraft/a/a/c/a", "net/minecraft/a/a/c/s");
+        // The game's settings object (client/k) no longer keeps the session id of the account (it was for the session
+        // check): the constructor passes it on to the mod through a system property, so that online-mode servers can still
+        // verify the player
+        t.custom("net/minecraft/client/k", new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
+                if (m == null) {
+                    return false;
+                }
+                LabelNode skip = new LabelNode();
+                InsnList il = new InsnList();
+                il.add(new LdcInsnNode("thewellodev.token"));
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/System", "getProperty",
+                        "(Ljava/lang/String;)Ljava/lang/String;", false));
+                il.add(new JumpInsnNode(Opcodes.IFNONNULL, skip));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                il.add(new JumpInsnNode(Opcodes.IFNULL, skip));
+                il.add(new LdcInsnNode("thewellodev.token"));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/System", "setProperty",
+                        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", false));
+                il.add(new InsnNode(Opcodes.POP));
+                il.add(skip);
+                m.instructions.insert(il);
+                return true;
+            }
+        });
+        // the world's entity tick also ticks the tile entities in its list: the furnaces smelt on the server (see TW325Client.tiles)
+        t.custom(W, new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "b", "()V");
+                if (m == null) {
+                    return false;
+                }
+                InsnList il = new InsnList();
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "tiles", "(Ljava/lang/Object;)V", false));
+                m.instructions.insert(il);
+                return true;
+            }
+        });
+        t.custom(W, new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "f", "()V");
+                if (m == null) {
+                    return false;
+                }
+                // 1. the list of scheduled block ticks (the list that the method takes entries from) is emptied at the
+                //    start: blocks that this game schedules are the server's business
+                String queue = null;
+                for (AbstractInsnNode n = m.instructions.getFirst(); n != null && queue == null; n = n.getNext()) {
+                    if (n.getOpcode() == Opcodes.INVOKEINTERFACE && n instanceof MethodInsnNode
+                            && "remove".equals(((MethodInsnNode) n).name)
+                            && "(I)Ljava/lang/Object;".equals(((MethodInsnNode) n).desc)) {
+                        for (AbstractInsnNode p = n.getPrevious(); p != null; p = p.getPrevious()) {
+                            if (p instanceof FieldInsnNode && "Ljava/util/List;".equals(((FieldInsnNode) p).desc)) {
+                                queue = ((FieldInsnNode) p).name;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (queue == null) {
+                    return false;
+                }
+                // 2. the loop of random block ticks around the player (32000 tries) runs no more
+                boolean cut = false;
+                for (AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
+                    if (n instanceof org.objectweb.asm.tree.IntInsnNode && n.getOpcode() == Opcodes.SIPUSH
+                            && ((org.objectweb.asm.tree.IntInsnNode) n).operand == 32000) {
+                        m.instructions.set(n, new InsnNode(Opcodes.ICONST_0));
+                        cut = true;
+                        break;
+                    }
+                }
+                InsnList il = new InsnList();
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                il.add(new FieldInsnNode(Opcodes.GETFIELD, W, queue, "Ljava/util/List;"));
+                il.add(new MethodInsnNode(Opcodes.INVOKEINTERFACE, "java/util/List", "clear", "()V", true));
+                m.instructions.insert(il);
+                return cut;
+            }
+        });
+        return t;
+    }
+
+    /**
+     * Game modes 1 (creative) and 2 (spectator), builds 316 and later:
+     * <ul>
+     * <li>Nothing hurts the player of this game: the damage methods of the living entity and of the player class return at once
+     *     (drowning, fire, explosions, falls, mobs; the check is the mod's {@code noDamage}).</li>
+     * <li>The digging controller of the survival game (client/d/b) breaks a block at once, the way the controller of the
+     *     creative game does (its base class client/d/a), without drops, and does nothing in the spectator mode.</li>
+     * </ul>
+     */
+    private static void addGameModeHooks(HookTransformer t, final String H) {
+        final String[] living = {"net/minecraft/a/c/e", "net/minecraft/a/c/e/a"};
+        for (String cls : living) {
+            t.custom(cls, new HookTransformer.Custom() {
+                public boolean apply(ClassNode cn) {
+                    boolean done = false;
+                    MethodNode hurt = findMethod(cn, "a", "(Lnet/minecraft/a/c/b;I)Z");
+                    if (hurt != null) {
+                        LabelNode cont = new LabelNode();
+                        InsnList il = new InsnList();
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "noDamage", "(Ljava/lang/Object;)Z", false));
+                        il.add(new JumpInsnNode(Opcodes.IFEQ, cont));
+                        il.add(new InsnNode(Opcodes.ICONST_0));
+                        il.add(new InsnNode(Opcodes.IRETURN));
+                        il.add(cont);
+                        hurt.instructions.insert(il);
+                        done = true;
+                    }
+                    MethodNode plain = findMethod(cn, "b", "(I)V");
+                    if (plain != null) {
+                        LabelNode cont = new LabelNode();
+                        InsnList il = new InsnList();
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "noDamage", "(Ljava/lang/Object;)Z", false));
+                        il.add(new JumpInsnNode(Opcodes.IFEQ, cont));
+                        il.add(new InsnNode(Opcodes.RETURN));
+                        il.add(cont);
+                        plain.instructions.insert(il);
+                        done = true;
+                    }
+                    return done;
+                }
+            });
+        }
+        t.custom("net/minecraft/client/d/b", new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                boolean done = false;
+                for (int variant = 0; variant < 2; variant++) {
+                    boolean withFace = variant == 1;
+                    MethodNode m = findMethod(cn, "a", withFace ? "(IIII)V" : "(III)V");
+                    if (m == null) {
+                        continue;
+                    }
+                    LabelNode afterSpectator = new LabelNode();
+                    LabelNode cont = new LabelNode();
+                    InsnList il = new InsnList();
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "spectator", "()Z", false));
+                    il.add(new JumpInsnNode(Opcodes.IFEQ, afterSpectator));
+                    il.add(new InsnNode(Opcodes.RETURN)); // the spectator breaks nothing
+                    il.add(afterSpectator);
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "creative", "()Z", false));
+                    il.add(new JumpInsnNode(Opcodes.IFEQ, cont));
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                    il.add(new VarInsnNode(Opcodes.ILOAD, 1));
+                    il.add(new VarInsnNode(Opcodes.ILOAD, 2));
+                    il.add(new VarInsnNode(Opcodes.ILOAD, 3));
+                    // the destroy method of the base class (client/d/a): the block goes at once, nothing drops
+                    il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "net/minecraft/client/d/a", "b", "(III)Z", false));
+                    il.add(new InsnNode(Opcodes.POP));
+                    if (withFace) {
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                        il.add(new InsnNode(Opcodes.ICONST_5)); // a short pause before the next block, as the survival game has
+                        il.add(new FieldInsnNode(Opcodes.PUTFIELD, "net/minecraft/client/d/b", "i", "I"));
+                    }
+                    il.add(new InsnNode(Opcodes.RETURN));
+                    il.add(cont);
+                    m.instructions.insert(il);
+                    done = true;
+                }
+                return done;
+            }
+        });
+    }
+
+    /** The hooks that builds 320 and later share: entities, item pick-ups, chests and furnaces, explosions. */
+    private static void addLateHooks(HookTransformer t, final String H, final String W, String chestBlock,
+                                     String furnaceBlock) {
+        addEntityAddHook(t, H, W);
+        addItemPickupHook(t, H);
+        addGameModeHooks(t, H);
         // Chest and furnace blocks: the click that opens them asks the server for the lock first
-        addContainerHook(t, "TW320Client", "net/minecraft/a/a/b/a");
-        addContainerHook(t, "TW320Client", "net/minecraft/a/a/b/s");
+        addContainerHook(t, H, W, chestBlock);
+        addContainerHook(t, H, W, furnaceBlock);
         // World: start of the explosion method (entity, x, y, z, power): the other players near it are hurt too
-        t.custom("net/minecraft/a/a/f", new HookTransformer.Custom() {
+        t.custom(W, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode m = findMethod(cn, "a", "(Lnet/minecraft/a/c/b;DDDF)V");
                 if (m == null) {
@@ -224,23 +432,22 @@ public class ClientPatcher {
                 il.add(new VarInsnNode(Opcodes.DLOAD, 4));
                 il.add(new VarInsnNode(Opcodes.DLOAD, 6));
                 il.add(new VarInsnNode(Opcodes.FLOAD, 8));
-                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "TW320Client", "onExplosion",
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "onExplosion",
                         "(Ljava/lang/Object;DDDF)V", false));
                 m.instructions.insert(il);
                 return true;
             }
         });
-        return t;
     }
 
     /**
      * A block's "right-clicked" method (world, x, y, z, player): the mod may cancel the click (it returns true) while it
      * waits for the server.
      */
-    private static void addContainerHook(HookTransformer t, final String H, String blockInternal) {
+    private static void addContainerHook(HookTransformer t, final String H, final String worldInternal, String blockInternal) {
         t.custom(blockInternal, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
-                MethodNode m = findMethod(cn, "a", "(Lnet/minecraft/a/a/f;IIILnet/minecraft/a/c/e/a;)Z");
+                MethodNode m = findMethod(cn, "a", "(L" + worldInternal + ";IIILnet/minecraft/a/c/e/a;)Z");
                 if (m == null) {
                     return false;
                 }
@@ -334,16 +541,67 @@ public class ClientPatcher {
     private static HookTransformer createTransformerInfdev(final String H, final boolean v313,
                                                            final String worldInternal, final String setBlockName,
                                                            final String metaName) {
+        return createTransformerInfdev(H, v313, worldInternal, setBlockName, metaName, "f", "net/minecraft/client/q", false);
+    }
+
+    /**
+     * @param tickName     the main application's tick method (it changed its name in 20100321)
+     * @param titleInternal the title screen class (its name moved in 20100321)
+     * @param sessionCheck true for 20100321 and later: the game has a thread that asks a server of the time (long gone)
+     *                     whether the account is logged in twice, and a screen "Session conflict!" that opens when the
+     *                     answer does not come. The thread is stopped and the check always passes.
+     */
+    private static HookTransformer createTransformerInfdev(final String H, final boolean v313,
+                                                           final String worldInternal, final String setBlockName,
+                                                           final String metaName, final String tickName,
+                                                           final String titleInternal, final boolean sessionCheck) {
+        return createTransformerInfdev(H, v313, worldInternal, setBlockName, metaName, tickName, titleInternal,
+                sessionCheck, false);
+    }
+
+    /** @param noClientChecks true for 20100325 and later: the game has neither the online check nor the session check */
+    private static HookTransformer createTransformerInfdev(final String H, final boolean v313,
+                                                           final String worldInternal, final String setBlockName,
+                                                           final String metaName, final String tickName,
+                                                           final String titleInternal, final boolean sessionCheck,
+                                                           final boolean noClientChecks) {
         HookTransformer t = new HookTransformer();
         addMouseHook(t, "net/minecraft/client/a/d");
+        if (sessionCheck) {
+            t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
+                public boolean apply(ClassNode cn) {
+                    // the poll that reads a URL: it does nothing now (and the game contacts no server of the old days)
+                    MethodNode poll = findMethod(cn, "b", "(Lnet/minecraft/client/d;)V");
+                    if (poll == null) {
+                        return false;
+                    }
+                    // the body is replaced as a whole (code and exception handlers): a bare "return" in front of it would
+                    // leave dead code that the old verifier of these class files rejects
+                    poll.instructions.clear();
+                    poll.tryCatchBlocks.clear();
+                    if (poll.localVariables != null) {
+                        poll.localVariables.clear();
+                    }
+                    poll.instructions.add(new InsnNode(Opcodes.RETURN));
+                    return true;
+                }
+            });
+        }
         // Game tick: the main application's tick method calls the world tick
         t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
-                MethodNode m = findMethod(cn, "f", "()V");
+                MethodNode m = findMethod(cn, tickName, "()V");
                 if (m == null) {
                     return false;
                 }
                 InsnList il = new InsnList();
+                if (sessionCheck) {
+                    // E = K: the time of the last answer is now, so the "Session conflict!" screen never opens
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                    il.add(new FieldInsnNode(Opcodes.GETFIELD, "net/minecraft/client/d", "K", "I"));
+                    il.add(new InsnNode(Opcodes.I2L));
+                    il.add(new FieldInsnNode(Opcodes.PUTSTATIC, "net/minecraft/client/d", "E", "J"));
+                }
                 il.add(new VarInsnNode(Opcodes.ALOAD, 0));
                 il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "tick", "(Ljava/lang/Object;)V", false));
                 m.instructions.insert(il);
@@ -352,41 +610,44 @@ public class ClientPatcher {
         });
         // Set-world method: remove the old online check at its start. It reads a URL (it can hang for a long time)
         // and keeps the world only if the check passes. Now the world is stored and the check is skipped.
-        t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
-            public boolean apply(ClassNode cn) {
-                MethodNode m = findMethod(cn, "a", "(L" + worldInternal + ";)V");
-                if (m == null) {
-                    return false;
-                }
-                // The check ends with "goto L; pop; L: aload_1; ifnull ..." (the catch handler's pop, then the label)
-                LabelNode target = null;
-                for (AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
-                    if (n.getOpcode() == Opcodes.POP && n.getNext() instanceof LabelNode) {
-                        AbstractInsnNode after = n.getNext().getNext();
-                        while (after != null && after.getOpcode() < 0) {
-                            after = after.getNext();
-                        }
-                        if (after instanceof VarInsnNode && after.getOpcode() == Opcodes.ALOAD
-                                && ((VarInsnNode) after).var == 1) {
-                            target = (LabelNode) n.getNext();
-                            break;
+        // (20100321 and later have no such check in this method)
+        if (!sessionCheck && !noClientChecks) {
+            t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
+                public boolean apply(ClassNode cn) {
+                    MethodNode m = findMethod(cn, "a", "(L" + worldInternal + ";)V");
+                    if (m == null) {
+                        return false;
+                    }
+                    // The check ends with "goto L; pop; L: aload_1; ifnull ..." (the catch handler's pop, then the label)
+                    LabelNode target = null;
+                    for (AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
+                        if (n.getOpcode() == Opcodes.POP && n.getNext() instanceof LabelNode) {
+                            AbstractInsnNode after = n.getNext().getNext();
+                            while (after != null && after.getOpcode() < 0) {
+                                after = after.getNext();
+                            }
+                            if (after instanceof VarInsnNode && after.getOpcode() == Opcodes.ALOAD
+                                    && ((VarInsnNode) after).var == 1) {
+                                target = (LabelNode) n.getNext();
+                                break;
+                            }
                         }
                     }
+                    if (target == null) {
+                        return false;
+                    }
+                    InsnList il = new InsnList();
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                    il.add(new FieldInsnNode(Opcodes.PUTFIELD, "net/minecraft/client/d", "d", "L" + worldInternal + ";"));
+                    il.add(new JumpInsnNode(Opcodes.GOTO, target));
+                    m.instructions.insert(il);
+                    return true;
                 }
-                if (target == null) {
-                    return false;
-                }
-                InsnList il = new InsnList();
-                il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                il.add(new VarInsnNode(Opcodes.ALOAD, 1));
-                il.add(new FieldInsnNode(Opcodes.PUTFIELD, "net/minecraft/client/d", "d", "L" + worldInternal + ";"));
-                il.add(new JumpInsnNode(Opcodes.GOTO, target));
-                m.instructions.insert(il);
-                return true;
-            }
-        });
+            });
+        }
         // Title screen: add the multiplayer button (end of init) and handle its click (start of the button handler)
-        t.custom("net/minecraft/client/q", new HookTransformer.Custom() {
+        t.custom(titleInternal, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode init = findMethod(cn, "b", "()V");
                 MethodNode click = findMethod(cn, "a", "(Lnet/minecraft/client/c/r;)V");
@@ -662,7 +923,7 @@ public class ClientPatcher {
             System.out.println("TheWello's Infdev Client Patcher");
             System.out.println("Usage: java -jar TheWellosInfdevClientPatcher.jar <inf-...jar> <output.jar | folder>");
             System.out.println("With a folder the output is named <build>-mp.jar (for example inf-20100316-mp.jar).");
-            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320 (detected from the jar)");
+            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640 (detected from the jar)");
             System.exit(1);
         }
         boolean publicizeOnly = args.length > 2 && args[2].equals("--publicize-only");
@@ -689,6 +950,13 @@ public class ClientPatcher {
         net.thewellodev.protocol.GameVersion version;
         if (jar.getEntry("kb.class") != null && jar.getEntry("fe.class") != null && jar.getEntry("aw.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100630_1340;
+        } else if (jar.getEntry("net/minecraft/a/a/g.class") != null && jar.getEntry("net/minecraft/a/a/c/x.class") != null
+                && jar.getEntry("net/minecraft/a/a/a/b.class") != null && jar.getEntry("net/minecraft/client/q.class") != null) {
+            version = net.thewellodev.protocol.GameVersion.INF_20100325_1640;
+        } else if (jar.getEntry("net/minecraft/a/a/e/e.class") != null && jar.getEntry("net/minecraft/a/a/f.class") != null
+                && jar.getEntry("net/minecraft/a/a/b/aj.class") != null && jar.getEntry("net/minecraft/client/r.class") != null
+                && jar.getEntry("net/minecraft/client/c/s.class") != null) {
+            version = net.thewellodev.protocol.GameVersion.INF_20100321;
         } else if (jar.getEntry("net/minecraft/a/a/e/e.class") != null && jar.getEntry("net/minecraft/a/a/f.class") != null
                 && jar.getEntry("net/minecraft/a/a/b/aj.class") != null && jar.getEntry("net/minecraft/client/d.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100320;
@@ -700,7 +968,7 @@ public class ClientPatcher {
         } else if (jar.getEntry("net/minecraft/a/a/e.class") != null && jar.getEntry("net/minecraft/client/d.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100227_1433;
         } else {
-            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316 or inf-20100320 client jar: " + in);
+            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321 or inf-20100325-1640 client jar: " + in);
         }
         return version;
     }
@@ -738,9 +1006,11 @@ public class ClientPatcher {
         // Mod classes of each build are in their own folder inside the patcher
         boolean is316 = version == net.thewellodev.protocol.GameVersion.INF_20100316;
         boolean is320 = version == net.thewellodev.protocol.GameVersion.INF_20100320;
-        String modDir = is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
+        boolean is321 = version == net.thewellodev.protocol.GameVersion.INF_20100321;
+        boolean is325 = version == net.thewellodev.protocol.GameVersion.INF_20100325_1640;
+        String modDir = is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
         HookTransformer t = publicizeOnly ? new HookTransformer()
-                : (is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
+                : (is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
         Manifest mf = new Manifest();
         mf.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         if (!publicizeOnly) {

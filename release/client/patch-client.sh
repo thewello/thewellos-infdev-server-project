@@ -6,7 +6,7 @@
 cd "$(dirname "$0")" || exit 1
 if [ -z "$1" ]; then
   echo "Usage: ./patch-client.sh <original Infdev jar>"
-  echo "Supported builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316"
+  echo "Supported builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640"
   exit 1
 fi
 mkdir -p patched

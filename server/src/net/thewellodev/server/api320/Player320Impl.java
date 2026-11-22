@@ -2,6 +2,7 @@ package net.thewellodev.server.api320;
 
 import net.thewellodev.api.Server;
 import net.thewellodev.api.entity.Player;
+import net.thewellodev.api320.Block320;
 import net.thewellodev.api320.Location320;
 import net.thewellodev.api320.Player320;
 import net.thewellodev.api320.World320;
@@ -134,5 +135,18 @@ final class Player320Impl implements Player320 {
     @Override
     public String toString() {
         return "Player320{" + handle.getName() + "}";
+    }
+
+    public Location320 getEyeLocation() {
+        return api.location(handle.getEyeLocation());
+    }
+
+    public Block320 getTargetBlock(int maxDistance) {
+        net.thewellodev.api.block.Block b = handle.getTargetBlock(maxDistance);
+        return b == null ? null : api.block(b);
+    }
+
+    public long getLoginTime() {
+        return handle.getLoginTime();
     }
 }

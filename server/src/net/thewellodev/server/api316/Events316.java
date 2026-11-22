@@ -14,6 +14,7 @@ import net.thewellodev.api.event.player.PlayerJoinEvent;
 import net.thewellodev.api.event.player.PlayerKickEvent;
 import net.thewellodev.api.event.player.PlayerLoginEvent;
 import net.thewellodev.api.event.player.PlayerMoveEvent;
+import net.thewellodev.api.event.player.PlayerPickupItemEvent;
 import net.thewellodev.api.event.player.PlayerQuitEvent;
 import net.thewellodev.api.event.player.PlayerRespawnEvent;
 import net.thewellodev.api316.Location316;
@@ -25,8 +26,7 @@ import net.thewellodev.server.plugin.SimplePluginManager;
  * always does; after the handlers of those have run, the same thing is announced to the plugins of this build with
  * the API's event classes, and what the plugins changed (cancelling, messages, locations) is copied back.
  *
- * Events this build cannot have are not translated: item drops and pickups, inventory, health reports, items on the
- * ground, and hits against mobs.
+ * Events this build cannot have are not translated: inventory, health reports and hits against mobs.
  */
 public final class Events316 implements net.thewellodev.server.plugin.EventTranslator {
 
@@ -146,12 +146,39 @@ public final class Events316 implements net.thewellodev.server.plugin.EventTrans
             b.setCancelled(a.isCancelled());
             plugins.dispatch(b);
             a.setCancelled(b.isCancelled());
+        } else if (e instanceof PlayerPickupItemEvent) {
+            PlayerPickupItemEvent a = (PlayerPickupItemEvent) e;
+            net.thewellodev.api316.event.player.PlayerPickupItemEvent b =
+                    new net.thewellodev.api316.event.player.PlayerPickupItemEvent(api.player(a.getPlayer()), a.getItemNetId(),
+                            a.getTypeId(), a.getAmount(), a.getData());
+            b.setCancelled(a.isCancelled());
+            plugins.dispatch(b);
+            a.setCancelled(b.isCancelled());
+        } else if (e instanceof net.thewellodev.server.event.SharedItemSpawnEvent) {
+            net.thewellodev.server.event.SharedItemSpawnEvent a = (net.thewellodev.server.event.SharedItemSpawnEvent) e;
+            net.thewellodev.api316.event.world.ItemSpawnEvent b = new net.thewellodev.api316.event.world.ItemSpawnEvent(
+                    api.player(a.getOwner()), new Location316(api.player(a.getOwner()).getWorld(), a.getX(), a.getY(), a.getZ()),
+                    a.getNumber(), a.getTypeId(), a.getAmount(), a.getData());
+            plugins.dispatch(b);
+            a.setCancelled(b.isCancelled());
+        } else if (e instanceof net.thewellodev.server.event.SharedMobSpawnEvent) {
+            net.thewellodev.server.event.SharedMobSpawnEvent a = (net.thewellodev.server.event.SharedMobSpawnEvent) e;
+            net.thewellodev.api316.event.world.MobSpawnEvent b = new net.thewellodev.api316.event.world.MobSpawnEvent(
+                    api.player(a.getOwner()), a.getKind(), new Location316(api.player(a.getOwner()).getWorld(), a.getX(),
+                    a.getY(), a.getZ()));
+            plugins.dispatch(b);
+            a.setCancelled(b.isCancelled());
         }
     }
 
     private static boolean sameSpot(Location316 a, Location b) {
         return a.getX() == b.getX() && a.getY() == b.getY() && a.getZ() == b.getZ() && a.getYaw() == b.getYaw()
                 && a.getPitch() == b.getPitch();
+    }
+
+    @Override
+    public net.thewellodev.api.command.CommandSender wrapSender(net.thewellodev.api.command.CommandSender sender) {
+        return sender instanceof Player ? api.player((Player) sender) : sender;
     }
 
     /** For callers that hold a plain player: the API's view of it. */

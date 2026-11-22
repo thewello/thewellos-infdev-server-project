@@ -61,6 +61,9 @@ public class TWBridge320 implements GameBridge {
     private int populateDepth;
     private Method getBlockMethod;
     private Method setBlockMethod;
+    /** The game queues its light updates (one box per call of the drain method; the client calls it every frame). */
+    private Method lightDrain;
+    private Field lightQueue;
     private Method getMetaMethod;
     private Method setMetaMethod;
     private Field timeField;
@@ -128,6 +131,9 @@ public class TWBridge320 implements GameBridge {
             getBlockMethod = worldClass.getMethod("a", int.class, int.class, int.class);
             setBlockMethod = worldClass.getMethod("c", int.class, int.class, int.class, int.class); // set block, tells the listeners
             getMetaMethod = worldClass.getMethod("d", int.class, int.class, int.class);
+            lightDrain = worldClass.getMethod("d");
+            lightQueue = worldClass.getDeclaredField("h");
+            lightQueue.setAccessible(true);
             setMetaMethod = worldClass.getMethod("b", int.class, int.class, int.class, int.class);
             timeField = field(worldClass, "j");
             chunkCtor = chunkClass.getConstructor(worldClass, byte[].class, int.class, int.class);
@@ -281,6 +287,7 @@ public class TWBridge320 implements GameBridge {
      * updates here, so the only work is to drop far chunks when many are in memory.
      */
     public void tick(int[] playerBlockPositions) {
+        drainLight(300);
         if (playerBlockPositions != null) {
             lastPlayers = playerBlockPositions.clone();
         }
@@ -306,9 +313,9 @@ public class TWBridge320 implements GameBridge {
             Object chunk = en.getValue();
             int cx = signedCoord(chunkX.getInt(chunk)), cz = signedCoord(chunkZ.getInt(chunk));
             boolean near = false;
-            // lastPlayers holds x, y, z of each player
-            for (int i = 0; i + 2 < lastPlayers.length; i += 3) {
-                int px = lastPlayers[i] >> 4, pz = lastPlayers[i + 2] >> 4;
+            // lastPlayers holds x and z of each player
+            for (int i = 0; i + 1 < lastPlayers.length; i += 2) {
+                int px = lastPlayers[i] >> 4, pz = lastPlayers[i + 1] >> 4;
                 if (Math.abs(px - cx) <= 16 && Math.abs(pz - cz) <= 16) {
                     near = true;
                     break;
@@ -564,6 +571,7 @@ public class TWBridge320 implements GameBridge {
                 }
             }
             Object chunk = chunkFor(gameCoord(cx), gameCoord(cz));
+            drainLight(20000); // what is sent is lit completely
             byte[] raw = new byte[Protocol.CHUNK_RAW_SIZE];
             System.arraycopy((byte[]) chunkBlocks.get(chunk), 0, raw, 0, BLOCKS);
             int off = BLOCKS;
@@ -696,6 +704,40 @@ public class TWBridge320 implements GameBridge {
 
     public int getLoadedEntityCount() {
         return 0;
+    }
+
+    /**
+     * Works off the light updates that the game has queued (a block change, a tree). The game does this once in each frame
+     * of a client; the server has no frames, so without this the light of the server would never spread sideways or from
+     * torches, and the queue would grow forever.
+     */
+    private void drainLight(int max) {
+        try {
+            java.util.List<?> queue = (java.util.List<?>) lightQueue.get(world);
+            for (int i = 0; i < max && !queue.isEmpty(); i++) {
+                lightDrain.invoke(world);
+            }
+        } catch (Exception ex) {
+            Throwable cause = ex instanceof InvocationTargetException && ex.getCause() != null ? ex.getCause() : ex;
+            throw new IllegalStateException("Light update failed: " + cause, cause);
+        }
+    }
+
+    public int getRawLight(int x, int y, int z, boolean sky) {
+        if (y < 0 || y > 127) {
+            return -1;
+        }
+        try {
+            Object chunk = chunks.get(mapKey(gameCoord(x >> 4), gameCoord(z >> 4)));
+            if (chunk == null) {
+                return -1;
+            }
+            byte[] a = (byte[]) nibbleBytes.get(sky ? chunkSky.get(chunk) : chunkBlockLight.get(chunk));
+            int i = ((x & 15) << 11) | ((z & 15) << 7) | y;
+            return (a[i >> 1] >> ((i & 1) * 4)) & 15;
+        } catch (Exception ex) {
+            return -1;
+        }
     }
 
     public int getLoadedChunkCount() {

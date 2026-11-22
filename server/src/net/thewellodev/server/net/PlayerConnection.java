@@ -815,12 +815,26 @@ public class PlayerConnection {
         });
     }
 
+    /** Asks the game of this player to announce its items again (see Protocol.DROP_RESYNC). */
+    public void sendDropResync() {
+        send(new OutPacket() {
+            public void write(DataOutputStream o) throws IOException {
+                o.writeByte(Protocol.DROP_RESYNC);
+            }
+        });
+    }
+
     public void sendDropClaimResult(final int number, final boolean ok) {
+        sendDropClaimResult(number, ok ? 1 : 0);
+    }
+
+    /** Code 0: somebody else has the item; 1: it is yours; 2: refused for now (the item stays). */
+    public void sendDropClaimResult(final int number, final int code) {
         send(new OutPacket() {
             public void write(DataOutputStream o) throws IOException {
                 o.writeByte(Protocol.DROP_CLAIM_RESULT);
                 o.writeInt(number);
-                o.writeByte(ok ? 1 : 0);
+                o.writeByte(code);
             }
         });
     }

@@ -77,7 +77,7 @@ import java.util.logging.Logger;
 public class TWServer implements Server {
 
     public static final String NAME = "TheWello's Infdev Server";
-    public static final String VERSION = "2.1.0";
+    public static final String VERSION = "2.2.0";
 
     private final Logger logger;
     private final File dir;
@@ -240,6 +240,7 @@ public class TWServer implements Server {
         // a world of an older build is taken over: its chunks are converted when first needed (the old world stays as it is)
         bridge.setLegacyWorld(net.thewellodev.server.world.WorldConverter.prepare(new File(dir, "worlds"), levelName,
                 gameVersion, logger));
+        bridge.setUpgradeOldChunks(config.getBoolean("upgrade-old-terrain", false));
         bridge.load(worldRoot, levelName, seed);
         gcl.verifyHooks();
         bridge.setMobSettings(difficulty, spawnMonsters, spawnAnimals);
@@ -284,10 +285,18 @@ public class TWServer implements Server {
         logger.info("Seed: " + bridge.getSeed() + ", spawn: " + sp[0] + " " + sp[1] + " " + sp[2]);
         logger.info("Preparing spawn area...");
         long t0 = System.currentTimeMillis();
-        int r = Math.min(viewDistance, 4);
+        // the terrain of the newest build is slow to make (caves): a smaller area is made before the server opens
+        int r = Math.min(viewDistance, gameVersion == GameVersion.INF_20100325_1640 ? 3 : 4);
+        int total = (2 * r + 1) * (2 * r + 1), done = 0, shown = 0;
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
                 bridge.getChunkData((sp[0] >> 4) + dx, (sp[2] >> 4) + dz);
+                tickStartedMs = System.currentTimeMillis(); // it makes progress: this is not a freeze
+                done++;
+                if (done * 4 / total > shown && done < total) {
+                    shown = done * 4 / total;
+                    logger.info("Preparing spawn area... " + shown * 25 + "%");
+                }
             }
         }
         changedBlocks.clear();
@@ -305,6 +314,18 @@ public class TWServer implements Server {
             net.thewellodev.server.api313.Server313Impl view = new net.thewellodev.server.api313.Server313Impl(this);
             net.thewellodev.api313.TheWello313.setServer(view);
             pluginManager.setTranslator(new net.thewellodev.server.api313.Events313(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100325_1640) {
+            // this build has its own plugin API too (net.thewellodev.api325)
+            net.thewellodev.server.api325.Server325Impl view = new net.thewellodev.server.api325.Server325Impl(this);
+            net.thewellodev.api325.TheWello325.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api325.Events325(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100321) {
+            // this build has its own plugin API too (net.thewellodev.api321)
+            net.thewellodev.server.api321.Server321Impl view = new net.thewellodev.server.api321.Server321Impl(this);
+            net.thewellodev.api321.TheWello321.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api321.Events321(pluginManager, view.api()));
         }
         if (gameVersion == GameVersion.INF_20100320) {
             // this build has its own plugin API too (net.thewellodev.api320)
@@ -546,7 +567,9 @@ public class TWServer implements Server {
             if (sleep < -2000000000L) {
                 long behind = -sleep / 50000000L;
                 if (System.currentTimeMillis() - lastWarn > 15000) {
-                    logger.warning("Server is behind! Skipping " + behind + " ticks (" + (-sleep / 1000000L) + " ms)");
+                    logger.warning("Server is behind! Skipping " + behind + " ticks (" + (-sleep / 1000000L) + " ms). That tick took " + (int) mspt + " ms: logins "
+                            + segLogin / 1000000L + " ms, packets " + segPackets / 1000000L + " ms, world " + segWorld / 1000000L + " ms, chunks " + segChunks / 1000000L
+                            + " ms");
                     lastWarn = System.currentTimeMillis();
                 }
                 next = System.nanoTime();
@@ -608,6 +631,9 @@ public class TWServer implements Server {
         freezeWatch.start();
     }
 
+    /** How long the parts of the last tick took (nanoseconds): for the message about a slow server. */
+    private long segPackets, segWorld, segChunks, segLogin;
+
     private void tick() {
         tickStartedMs = System.currentTimeMillis();
         tickCount++;
@@ -628,6 +654,7 @@ public class TWServer implements Server {
             handleConsoleLine(cmd[0]);
         }
         // 2) New connections / handshakes
+        long segL = System.nanoTime();
         PlayerConnection nc;
         while ((nc = newConnections.poll()) != null) {
             pending.add(nc);
@@ -649,10 +676,14 @@ public class TWServer implements Server {
                 pit.remove();
             }
         }
+        segLogin = System.nanoTime() - segL;
         // 3) Player packets
+        long segT = System.nanoTime();
         for (TWPlayer p : new ArrayList<TWPlayer>(players.values())) {
             processPackets(p);
         }
+        segPackets = System.nanoTime() - segT;
+        segT = System.nanoTime();
         // 4) World
         int[] pos = new int[players.size() * 2];
         int i = 0;
@@ -662,11 +693,21 @@ public class TWServer implements Server {
         }
         try {
             syncProxies();
+            int[] open = new int[tileLocks.size() * 3];
+            int oi = 0;
+            for (long lk : tileLocks.keySet()) {
+                int lx = (int) ((lk >> 38) & 0x3FFFFFF), lz = (int) ((lk >> 12) & 0x3FFFFFF);
+                open[oi++] = lx >= (1 << 25) ? lx - (1 << 26) : lx;
+                open[oi++] = (int) (lk & 0xFFF);
+                open[oi++] = lz >= (1 << 25) ? lz - (1 << 26) : lz;
+            }
+            bridge.setLockedTiles(open);
             bridge.tick(pos);
             trackMobs();
         } catch (Throwable t) {
             logger.log(Level.SEVERE, "Error in the world tick", t);
         }
+        segWorld = System.nanoTime() - segT;
         // 5) plugin scheduler
         scheduler.tick();
         if (tickCount % 20 == 0) {
@@ -675,10 +716,34 @@ public class TWServer implements Server {
                 mobAuthorityTick();
             }
         }
+        if (sharesDrops()) {
+            if (tickCount % 40 == 0) {
+                showServerDrops();
+            }
+            if (tickCount % 1200 == 0 && players.size() > 1) {
+                for (TWPlayer q : players.values()) {
+                    if (q.joined && q.getConnection() != null) {
+                        q.getConnection().sendDropResync(); // the games announce their items again
+                    }
+                }
+            }
+        }
         // 6) Send block changes
         flushBlockChanges();
-        // 7) chunks, visibility, keepalive
-        for (TWPlayer p : new ArrayList<TWPlayer>(players.values())) {
+        // 7) chunks, visibility, keepalive. Making chunks is slow (a chunk of the newest builds takes 20 to 150 ms): the time that
+        // a tick may spend on it is limited, and the players take turns, so that the server keeps its tick rate
+        segT = System.nanoTime();
+        chunkBudgetEnd = System.nanoTime() + CHUNK_TIME_BUDGET_NS;
+        chunksSentThisTick = 0;
+        skipChunks = chunkCooldown > 0;
+        if (skipChunks) {
+            chunkCooldown--;
+        }
+        List<TWPlayer> order = new ArrayList<TWPlayer>(players.values());
+        if (order.size() > 1) {
+            java.util.Collections.rotate(order, -(int) (tickCount % order.size()));
+        }
+        for (TWPlayer p : order) {
             if (p.getConnection().isClosed()) {
                 removePlayer(p, p.getConnection().getCloseReason(), true);
                 continue;
@@ -688,6 +753,10 @@ public class TWServer implements Server {
             checkHealth(p);
             p.ticksSinceTeleport++;
         }
+        segChunks = System.nanoTime() - segT;
+        // a tick that made chunks for longer than it should is paid back with ticks that make none: the server keeps about 20
+        // ticks a second, and the players get their chunks a little slower
+        chunkCooldown = skipChunks ? chunkCooldown : (int) (segChunks / (2 * CHUNK_TIME_BUDGET_NS));
         if (tickCount % 10 == 0) {
             updateVisibility();
         }
@@ -899,6 +968,12 @@ public class TWServer implements Server {
             p.dropSlot = allocateSlot(p);
             p.dropSeqStart = 1 + new java.util.Random().nextInt(0xFFFF00);
             c.sendSlot(p.dropSlot, p.dropSeqStart);
+            // the items that lie about already: the games of the others announce them again, the server shows its own
+            for (TWPlayer q : players.values()) {
+                if (q != p && q.joined && q.getConnection() != null) {
+                    q.getConnection().sendDropResync();
+                }
+            }
         }
         if (gameVersion != null && gameVersion.protocol != Protocol.VERSION) {
             int[] saved = p.savedInv;
@@ -1197,7 +1272,7 @@ public class TWServer implements Server {
         }
         // An invalid block id can crash other clients; the rate limit prevents world-edit spam
         boolean invalid = id != 0 && (id >= 256 || !bridge.isValidItem(id));
-        boolean forbidden = !p.isOp() && (restrictedPlace(id) || (oldId == 7 && p.gameMode == 0));
+        boolean forbidden = p.gameMode == 2 || (!p.isOp() && (restrictedPlace(id) || (oldId == 7 && p.gameMode == 0)));
         if (invalid || forbidden || !(takeBurst(p, x, y, z, id) || p.allow("block", 40)) || p.dead) {
             p.getConnection().sendBlockChange(x, y, z, oldId, oldMeta);
             if (invalid) {
@@ -1265,6 +1340,9 @@ public class TWServer implements Server {
     /** Creates a shared item on the server without firing an event (for internal actions). */
     private int placeNetItem(double x, double y, double z, double mx, double my, double mz, int type, int count,
                              int data) {
+        if (sharesDrops()) {
+            return placeSharedItem(x, y, z, mx, my, mz, type, count, data);
+        }
         NetItem it = new NetItem();
         it.id = nextItemId++;
         it.type = type;
@@ -1279,6 +1357,58 @@ public class TWServer implements Server {
             o.getConnection().sendSpawnItem(it.id, x, y, z, mx, my, mz, type, count, data);
         }
         return it.id;
+    }
+
+    /** The number that the items made by the server itself get: slot 2047 is the server's (no player gets it). */
+    private int serverDropSeq = 1;
+    /** The items that the server made and that still lie about: number, then x, y, z, motion, type, count, damage, tick. */
+    private final java.util.Map<Integer, double[]> serverDrops = new java.util.LinkedHashMap<Integer, double[]>();
+
+    /**
+     * Shows the items of the server to the players who have not seen them (they joined after the item was made, or walked into
+     * its range), and forgets the items that are older than the game keeps them.
+     */
+    private void showServerDrops() {
+        for (java.util.Iterator<java.util.Map.Entry<Integer, double[]>> it = serverDrops.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<Integer, double[]> en = it.next();
+            double[] d = en.getValue();
+            if (tickCount - (long) d[9] > ITEM_LIFETIME_TICKS) {
+                it.remove();
+                continue;
+            }
+            for (TWPlayer q : players.values()) {
+                if (q.joined && q.getConnection() != null && !q.seenServerDrops.contains(en.getKey())
+                        && near(q, d[0], d[1], d[2], 128)) {
+                    q.getConnection().sendDropSpawn(en.getKey(), (int) d[6], (int) d[7], (int) d[8],
+                            new double[]{d[0], d[1], d[2], 0, 0, 0});
+                    q.seenServerDrops.add(en.getKey());
+                }
+            }
+        }
+    }
+
+    /**
+     * Builds whose games run the items: an item that the server made (a leaf that dropped a sapling, a plugin) is shown to
+     * the players near it as an item of the server's own slot; the first game that asks for it gets it.
+     */
+    private int placeSharedItem(double x, double y, double z, double mx, double my, double mz, int type, int count,
+                                int data) {
+        int number = (2047 << 20) | serverDropSeq;
+        serverDropSeq = serverDropSeq >= 0xFFFFF ? 1 : serverDropSeq + 1;
+        dropClaims.remove(number);
+        if (dropInfo.size() >= 2000) {
+            dropInfo.remove(dropInfo.keySet().iterator().next());
+        }
+        dropInfo.put(number, new int[]{type, count, data});
+        double[] v = {x, y, z, mx, my, mz};
+        serverDrops.put(number, new double[]{x, y, z, mx, my, mz, type, count, data, tickCount});
+        for (TWPlayer q : players.values()) {
+            if (q.joined && q.getConnection() != null && near(q, x, y, z, 160)) {
+                q.getConnection().sendDropSpawn(number, type, count, data, v);
+                q.seenServerDrops.add(number);
+            }
+        }
+        return number;
     }
 
     public int getItemCount() {
@@ -1462,7 +1592,8 @@ public class TWServer implements Server {
             return;
         }
         TWPlayer victim = playerById(targetId);
-        if (victim == null || victim == attacker || victim.dead || attacker.dead || victim.gameMode == 1) {
+        if (victim == null || victim == attacker || victim.dead || attacker.dead || victim.gameMode != 0
+                || attacker.gameMode == 2) {
             return; // creative players take no damage
         }
         if (!pvp) {
@@ -1577,7 +1708,7 @@ public class TWServer implements Server {
 
     /** PvP rules: damage one player deals to another (shared by melee and arrows). */
     private void applyPvp(TWPlayer attacker, TWPlayer victim, int damage) {
-        if (victim == attacker || victim.dead || attacker.dead || victim.gameMode == 1) {
+        if (victim == attacker || victim.dead || attacker.dead || victim.gameMode != 0 || attacker.gameMode == 2) {
             return;
         }
         if (!pvp) {
@@ -1616,7 +1747,7 @@ public class TWServer implements Server {
     }
 
     private void handleLockRequest(TWPlayer p, int x, int y, int z) {
-        if (!p.allow("lock", 10) || p.dead || !near(p, x + 0.5, y + 0.5, z + 0.5, 8) || !bridge.isLockableBlock(x, y, z)) {
+        if (p.gameMode == 2 || !p.allow("lock", 10) || p.dead || !near(p, x + 0.5, y + 0.5, z + 0.5, 8) || !bridge.isLockableBlock(x, y, z)) {
             p.getConnection().sendLockResult(x, y, z, false);
             return;
         }
@@ -1837,7 +1968,7 @@ public class TWServer implements Server {
 
     private void handleMobDamage(String name, int attackerId, int damage) {
         TWPlayer p = players.get(name.toLowerCase(java.util.Locale.ENGLISH));
-        if (p == null || p.dead || p.gameMode == 1 || !p.joined) {
+        if (p == null || p.dead || p.gameMode != 0 || !p.joined) {
             return;
         }
         net.thewellodev.server.game.NetEntity ne = mobs.get(attackerId);
@@ -2015,6 +2146,7 @@ public class TWServer implements Server {
     /** A slot (11 bits) that no player on the server has: the top bits of the numbers of his items and mobs. */
     private int allocateSlot(TWPlayer p) {
         boolean[] used = new boolean[2048];
+        used[2047] = true; // the server's own items
         for (TWPlayer q : players.values()) {
             if (q != p && q.dropSlot >= 0) {
                 used[q.dropSlot] = true;
@@ -2032,7 +2164,8 @@ public class TWServer implements Server {
 
     /** Builds whose clients run their own item entities and pass them on through the server. */
     private boolean sharesDrops() {
-        return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320;
+        return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
+                || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640;
     }
 
     /** Who picked up which shared item (number to slot): the first one asked gets it. */
@@ -2062,13 +2195,21 @@ public class TWServer implements Server {
      * them on, so that every player sees the items of the others.
      */
     private void handleDropSpawn(TWPlayer p, PlayerConnection.InPacket in) {
-        if (!sharesDrops() || !p.allow("dropspawn", 120) || !validNumber(p, in.i1) || in.i2 <= 0 || in.i2 > 2000
+        if (p.gameMode == 2 || !sharesDrops() || !p.allow("dropspawn", 120) || !validNumber(p, in.i1) || in.i2 <= 0 || in.i2 > 2000
                 || !bridge.isValidItem(in.i2) || in.i3 <= 0 || in.i3 > 999 || !isFinite(in.x) || !isFinite(in.y)
                 || !isFinite(in.z) || !isFinite(in.mx) || !isFinite(in.my) || !isFinite(in.mz)
                 || !near(p, in.x, in.y, in.z, 128) || Math.abs(in.mx) > 10 || Math.abs(in.my) > 10
                 || Math.abs(in.mz) > 10) {
             return;
         }
+        if (!dropInfo.containsKey(in.i1) && pluginManager.callEvent(new net.thewellodev.server.event.SharedItemSpawnEvent(p,
+                in.i1, in.i2, in.i3, in.i4, in.x, in.y, in.z)).isCancelled()) {
+            return; // (an item that the game announces again was announced before)
+        }
+        if (dropInfo.size() >= 2000) {
+            dropInfo.remove(dropInfo.keySet().iterator().next());
+        }
+        dropInfo.put(in.i1, new int[]{in.i2, in.i3, in.i4});
         double[] v = {in.x, in.y, in.z, in.mx, in.my, in.mz};
         for (TWPlayer q : players.values()) {
             if (q != p && near(q, in.x, in.y, in.z, 160)) {
@@ -2088,6 +2229,8 @@ public class TWServer implements Server {
             return;
         }
         dropClaims.remove(number);
+        dropInfo.remove(number);
+        serverDrops.remove(number);
         for (TWPlayer q : players.values()) {
             if (q != p) {
                 q.getConnection().sendDropRemove(number);
@@ -2095,14 +2238,29 @@ public class TWServer implements Server {
         }
     }
 
+    /** What the shared items are (type, count, damage), by number, for the plugin events. At most 2000. */
+    private final java.util.Map<Integer, int[]> dropInfo = new java.util.LinkedHashMap<Integer, int[]>();
+
     /** The first player who asks for an item gets it; the others lose their copy at once. */
     private void handleDropClaim(TWPlayer p, int number) {
         if (!sharesDrops() || !p.allow("dropclaim", 60) || p.dropSlot < 0) {
             return;
         }
+        if (p.gameMode == 2) {
+            p.getConnection().sendDropClaimResult(number, 2); // the spectator picks nothing up
+            return;
+        }
         Integer cur = dropClaims.get(number);
         boolean ok = cur == null || cur == p.dropSlot;
+        int[] info = dropInfo.get(number);
+        if (ok && cur == null && info != null && pluginManager.callEvent(new PlayerPickupItemEvent(p, number, info[0],
+                info[1], info[2])).isCancelled()) {
+            p.getConnection().sendDropClaimResult(number, 2); // a plugin refused: the item stays, the game may ask again
+            return;
+        }
         if (ok && cur == null) {
+            dropInfo.remove(number);
+            serverDrops.remove(number);
             dropClaims.put(number, p.dropSlot);
             for (TWPlayer q : players.values()) {
                 if (q != p) {
@@ -2118,9 +2276,13 @@ public class TWServer implements Server {
      * burst; the player may send as many as the explosion can destroy (and only for a moment), above the normal rate.
      */
     private void handleExplosion(TWPlayer p, float power, double x, double y, double z) {
-        if (gameVersion != GameVersion.INF_20100320 || !p.allow("explosion", 2) || p.dead
-                || !(power > 0f) || power > 8f || !isFinite(x) || !isFinite(y) || !isFinite(z)
+        if (!(gameVersion == GameVersion.INF_20100320 || gameVersion == GameVersion.INF_20100321
+                || gameVersion == GameVersion.INF_20100325_1640) || !p.allow("explosion", 2) || p.dead
+                || p.gameMode == 2 || !(power > 0f) || power > 8f || !isFinite(x) || !isFinite(y) || !isFinite(z)
                 || !near(p, x, y, z, 64)) {
+            return;
+        }
+        if (pluginManager.callEvent(new net.thewellodev.server.event.SharedExplosionEvent(p, power, x, y, z)).isCancelled()) {
             return;
         }
         p.blockBurst = Math.min(3000, (int) (power * power * power * 8 + 100));
@@ -2153,7 +2315,7 @@ public class TWServer implements Server {
      * near them, and remembers where each one is, so that another player can take it over when its owner leaves.
      */
     private void handleMobState(TWPlayer p, PlayerConnection.InPacket in) {
-        if (!sharesDrops() || !p.allow("mobstate", 400) || in.i2 > 5 || !isFinite(in.x) || !isFinite(in.y)
+        if (p.gameMode == 2 || !sharesDrops() || !p.allow("mobstate", 400) || in.i2 > 7 || !isFinite(in.x) || !isFinite(in.y)
                 || !isFinite(in.z) || Math.abs(in.x) > 3.2e7 || Math.abs(in.z) > 3.2e7 || in.y < -64 || in.y > 256
                 || !isFinite(in.mx) || !isFinite(in.my) || !isFinite(in.mz) || !isFinite(in.yaw) || !isFinite(in.pitch)) {
             return;
@@ -2161,6 +2323,11 @@ public class TWServer implements Server {
         MobInfo m = mobRegistry.get(in.i1);
         if (m == null) {
             if (!validNumber(p, in.i1) || mobRegistry.size() >= 400) {
+                return;
+            }
+            if (pluginManager.callEvent(new net.thewellodev.server.event.SharedMobSpawnEvent(p, in.i2, in.x, in.y, in.z))
+                    .isCancelled()) {
+                p.getConnection().sendMobRelease(in.i1); // the mob is removed from the game that made it
                 return;
             }
             m = new MobInfo();
@@ -2235,6 +2402,9 @@ public class TWServer implements Server {
             if (tickCount - m.handedOverAt < 100) {
                 continue;
             }
+            if (m.kind >= 6) {
+                continue; // a primed TNT explodes, and an arrow flies, in the game that made it
+            }
             TWPlayer owner = players.get(m.owner.toLowerCase(java.util.Locale.ENGLISH));
             double dOwner = owner == null || !owner.joined ? Double.MAX_VALUE : distance2(owner, m);
             TWPlayer best = null;
@@ -2270,6 +2440,15 @@ public class TWServer implements Server {
         for (java.util.Iterator<MobInfo> it = mobRegistry.values().iterator(); it.hasNext();) {
             MobInfo m = it.next();
             if (!m.owner.equalsIgnoreCase(leaver.getName())) {
+                continue;
+            }
+            if (m.kind >= 6) {
+                it.remove(); // a primed TNT or an arrow is not handed over: it goes with its game
+                for (TWPlayer q : players.values()) {
+                    if (q != leaver) {
+                        q.getConnection().sendMobRemove(m.number);
+                    }
+                }
                 continue;
             }
             TWPlayer best = null;
@@ -2449,6 +2628,13 @@ public class TWServer implements Server {
 
     // ================================================================ chunks and visibility
 
+    /** The time of one tick that may go to making chunks (the rest of the tick is the world, the packets and the plugins). */
+    private static final long CHUNK_TIME_BUDGET_NS = 20000000L;
+    private long chunkBudgetEnd;
+    private int chunkCooldown;
+    private boolean skipChunks;
+    private int chunksSentThisTick;
+
     private void updateChunks(TWPlayer p) {
         PlayerConnection c = p.getConnection();
         int pcx = p.getChunkX(), pcz = p.getChunkZ();
@@ -2466,7 +2652,7 @@ public class TWServer implements Server {
         }
         // Send new chunks starting with the nearest (flow control)
         int budget = Math.max(0, 6 - c.getPendingChunks());
-        if (budget == 0) {
+        if (budget == 0 || skipChunks) {
             return;
         }
         for (int ring = 0; ring <= r && budget > 0; ring++) {
@@ -2480,14 +2666,29 @@ public class TWServer implements Server {
                     if (p.loadedChunks.contains(k)) {
                         continue;
                     }
+                    if (chunksSentThisTick > 0 && System.nanoTime() > chunkBudgetEnd) {
+                        return; // the time for chunks is used up: the rest comes in the next ticks
+                    }
                     byte[] raw = bridge.getChunkData(cx, cz);
                     p.loadedChunks.add(k);
                     c.sendChunk(cx, cz, raw);
                     sendTiles(c, cx, cz);
+                    chunksSentThisTick++;
                     budget--;
                 }
             }
         }
+    }
+
+    /** The spectator mode (game mode 2) exists in the builds whose clients run the game's own entities (316 and later). */
+    public boolean hasSpectatorMode() {
+        return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
+                || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640;
+    }
+
+    /** The game mode of a player changed: the spectator disappears from the others (and shows again). */
+    public void onGameModeChanged(TWPlayer p) {
+        updateVisibility();
     }
 
     private void updateVisibility() {
@@ -2498,7 +2699,7 @@ public class TWServer implements Server {
                     continue;
                 }
                 double dx = a.x - b.x, dz = a.z - b.z;
-                boolean near = !b.dead && dx * dx + dz * dz <= range * range && a.hasChunk(b.getChunkX(), b.getChunkZ());
+                boolean near = !b.dead && b.gameMode != 2 && dx * dx + dz * dz <= range * range && a.hasChunk(b.getChunkX(), b.getChunkZ());
                 boolean sees = a.visiblePlayers.contains(b.getEntityId());
                 if (near && !sees) {
                     a.visiblePlayers.add(b.getEntityId());
@@ -2720,7 +2921,8 @@ public class TWServer implements Server {
         String[] args = new String[parts.length - 1];
         System.arraycopy(parts, 1, args, 0, args.length);
         try {
-            cmd.execute(sender, label, args);
+            cmd.execute(cmd instanceof net.thewellodev.api.command.PluginCommand ? pluginManager.wrapSender(sender) : sender,
+                    label, args);
         } catch (Throwable t) {
             logger.log(Level.SEVERE, "Error in command '/" + commandLine + "'", t);
             sender.sendMessage("&cError while running the command: " + t);
@@ -3228,5 +3430,54 @@ public class TWServer implements Server {
 
     public int getViewDistance() {
         return viewDistance;
+    }
+
+    public java.util.Collection<String> getOperators() {
+        synchronized (ops) {
+            return new java.util.ArrayList<String>(ops);
+        }
+    }
+
+    public java.util.Collection<String> getBannedPlayers() {
+        synchronized (banned) {
+            return new java.util.ArrayList<String>(banned);
+        }
+    }
+
+    public java.util.Collection<String> getWhitelistedPlayers() {
+        return new java.util.ArrayList<String>(whitelist);
+    }
+
+    public int broadcastMessage(String message, String permission) {
+        if (message == null) {
+            return 0;
+        }
+        int n = 0;
+        for (TWPlayer p : playerSnapshot) {
+            if (p.hasPermission(permission)) {
+                p.sendMessage(message);
+                n++;
+            }
+        }
+        logger.info("[CHAT] " + ChatColor.stripColor(message));
+        return n;
+    }
+
+    public java.util.List<? extends net.thewellodev.api.entity.Player> matchPlayers(String partialName) {
+        String q = partialName == null ? "" : partialName.toLowerCase(java.util.Locale.ENGLISH);
+        java.util.List<net.thewellodev.api.entity.Player> starts = new java.util.ArrayList<net.thewellodev.api.entity.Player>();
+        java.util.List<net.thewellodev.api.entity.Player> contains = new java.util.ArrayList<net.thewellodev.api.entity.Player>();
+        for (TWPlayer p : new java.util.ArrayList<TWPlayer>(players.values())) {
+            if (!p.joined) {
+                continue;
+            }
+            String n = p.getName().toLowerCase(java.util.Locale.ENGLISH);
+            if (n.startsWith(q)) {
+                starts.add(p);
+            } else if (n.contains(q)) {
+                contains.add(p);
+            }
+        }
+        return starts.isEmpty() ? contains : starts;
     }
 }

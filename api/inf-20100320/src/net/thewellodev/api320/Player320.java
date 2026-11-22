@@ -58,8 +58,23 @@ public interface Player320 extends CommandSender {
 
     boolean isDead();
 
-    /** 0 = survival, 1 = creative (flying, no damage). Creative is for operators only. */
+    /**
+     * 0 = survival, 1 = creative (flying, blocks break at once, nothing hurts), 2 = spectator (flying through walls, invisible,
+     * nothing hurts and nothing can be changed; builds 316 and later). Creative and spectator are for operators only.
+     */
     int getGameMode();
 
     void setGameMode(int mode);
+
+    /** The location of the player's eyes (the feet location raised by 1.62 blocks), with the player's yaw and pitch. */
+    Location320 getEyeLocation();
+
+    /**
+     * The first block that is not air or liquid on the line of sight, or null when there is none within
+     * {@code maxDistance} blocks (1 to 100) or the line leaves the loaded chunks. Call it from the main thread.
+     */
+    Block320 getTargetBlock(int maxDistance);
+
+    /** The time (milliseconds since 1970) at which this player connected. */
+    long getLoginTime();
 }

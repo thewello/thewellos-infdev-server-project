@@ -570,17 +570,19 @@ public final class BuiltinCommands {
                 return true;
             }
         });
-        map.registerBuiltin(new Cmd("gamemode", "/gamemode <0|1|survival|creative> [player]", "Changes the game mode", "gm") {
+        map.registerBuiltin(new Cmd("gamemode", "/gamemode <0|1|2|survival|creative|spectator> [player]", "Changes the game mode", "gm") {
             boolean run(CommandSender s, String l, String[] a) {
                 if (a.length == 0) {
                     return false;
                 }
                 String m = a[0].toLowerCase(java.util.Locale.ENGLISH);
                 int mode;
-                if (m.equals("0") || m.startsWith("s")) {
+                if (m.equals("0") || (m.startsWith("s") && !m.startsWith("sp"))) {
                     mode = 0;
                 } else if (m.equals("1") || m.startsWith("c")) {
                     mode = 1;
+                } else if (m.equals("2") || m.startsWith("sp") || m.equals("invisible")) {
+                    mode = 2;
                 } else {
                     return false;
                 }
@@ -589,12 +591,16 @@ public final class BuiltinCommands {
                     s.sendMessage("&cPlayer not found.");
                     return true;
                 }
-                if (mode == 1 && !t.isOp()) {
-                    s.sendMessage("&c" + t.getName() + " is not an operator: creative mode is for operators only.");
+                if (mode == 2 && !server.hasSpectatorMode()) {
+                    s.sendMessage("&cThe spectator mode does not exist in " + server.getGameVersion() + ".");
+                    return true;
+                }
+                if (mode != 0 && !t.isOp()) {
+                    s.sendMessage("&c" + t.getName() + " is not an operator: creative and spectator mode are for operators only.");
                     return true;
                 }
                 t.setGameMode(mode);
-                s.sendMessage("&e" + t.getName() + " game mode: " + (mode == 1 ? "Creative" : "Survival"));
+                s.sendMessage("&e" + t.getName() + " game mode: " + (mode == 1 ? "Creative" : mode == 2 ? "Spectator" : "Survival"));
                 return true;
             }
         });

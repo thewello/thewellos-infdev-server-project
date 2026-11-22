@@ -350,6 +350,8 @@ public class TWConnection {
             case Protocol.MOB_RELEASE:
                 p.i1 = in.readInt();
                 break;
+            case Protocol.DROP_RESYNC:
+                break;
             case Protocol.DROP_CLAIM_RESULT:
                 p.i1 = in.readInt();
                 p.i2 = in.readUnsignedByte();

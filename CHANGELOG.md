@@ -1,5 +1,84 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+
+- **Support for `inf-20100321`** (protocol 15): server bridge, client mod, plugin API (`api321`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 320, 316, 313 and 227. The world code of this build is identical to that of 20100320
+  (checked class by class), so every feature of 320 (shared items, mobs, chests, furnaces and explosions) works the same, and a
+  world of 320 is taken over without any change in the terrain. The client patcher switches off the build's **session check**: the
+  game polls a server of the year 2010 and opens the screen "Session conflict!" when its check fails; the poll is removed (the game
+  contacts nothing) and the check always passes.
+- **Support for `inf-20100325-1640`** (protocol 16): server bridge, client mod, plugin API (`api325`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 321, 320, 316, 313 and 227. (The build 20100325-1545 between 321 and this one is lost:
+  no copy exists. Everything it added is in 1640, and was checked there.) The patcher passes the player's session id to the mod (the
+  game no longer keeps it), so online-mode servers still work.
+- **Block ticks** (new in the game of 325-1640): leaves decay, grass spreads and dies under cover, fire spreads, flowers die in the
+  dark and saplings grow. The server runs them and sends what changes; the client's own block ticks are cut out of its world tick.
+  Items that blocks drop during a tick (a sapling from a decaying leaf) are shared items of the server. Caves and ore blobs come from
+  the game's own terrain generator, which the server runs.
+- **Furnaces smelt on the server** (build 325-1640): the server ticks the furnaces it holds, so they go on when nobody is near and
+  every player sees the block change to the burning furnace. The furnace that a player has open is ticked by that player's game (and
+  not by the server) until the window is closed, so the arrow and the flame move in the window as before.
+- **Game modes** (builds 316 and later): creative (`/gamemode 1`) breaks a block with one click, and nothing hurts a player of the
+  modes 1 and 2 (drowning, explosions, fire, falls: the damage methods of the game are cut out in that game, so a big hit cannot kill
+  in one tick). New: **spectator** (`/gamemode 2`, also `spectator`): invisible to the other players, flies through walls (the game's
+  own no-clip flag), cannot break, place, pick up, open chests, hit or be hit. Creative and spectator are for operators only.
+  `Player.getGameMode()` can now return 2.
+- **Primed TNT and arrows in flight are shown to the other players** (builds 316 and later): a lit block of TNT (kind 6) and each
+  arrow (kind 7) live in the game that made them; they are now reported like mobs and drawn, with the flashing fuse, in the other
+  games. They are not handed over when their owner leaves. `MobSpawnEvent.PRIMED_TNT` and `MobSpawnEvent.ARROW` let a plugin stop them.
+- **A player who joins sees the items that already lie on the ground** (builds 316 and later): the server asks the games to announce
+  their items again (`DROP_RESYNC`, 0x40) when somebody joins and once a minute, and shows the items it made itself to players who
+  come near them. The block ticks, the explosions and the light were compared between the server and two games, block by block:
+  they agree.
+- **Optional: taken-over land can get the caves of 325-1640** (`upgrade-old-terrain=true`, off by default): the populate step of the
+  new build then runs once on each chunk of an older build's world (caves, ore blobs, more trees); `/convertworld` populates and
+  saves each chunk the same way, a few in each tick. Without it the old chunks stay exactly as they were made.
+- **Plugin API (all builds, nothing removed):** `Player.getEyeLocation`, `getTargetBlock`, `getLoginTime`; `World.getNearbyPlayers`,
+  `fill`, `getDayLength`, `isDay`, `isNight`, `getBlockLightAt`, `getSkyLightAt`; `Server.getOperators`, `getBannedPlayers`,
+  `getWhitelistedPlayers`, `broadcastMessage(message, permission)`, `matchPlayers`, `getUptimeMillis`.
+- **New events in builds 316, 320, 321 and 325-1640:** `ItemSpawnEvent`, `PlayerPickupItemEvent` and `MobSpawnEvent`; in 320 and
+  later also `ExplosionEvent`. All can be cancelled (see the plugin API pages).
+- The server's message about a slow server says which part of the tick was slow (logins, packets, world, chunks).
+
+### Fixed
+
+- **Light on the server (builds 313, 316, 320, 321 and 325-1640):** the game queues its light updates and works one off in every
+  frame of a client; the server has no frames and never did, so the light that it stored and sent to joining players was wrong
+  after block changes and in new trees: no sideways spread of sky light under a roof, no light from torches (a torch lit nothing
+  for a player who joined later), and the queue grew without limit. The server now works the queue off every tick and completely
+  before it sends a chunk. The light of every client and of the server is identical (checked cell by cell). Chunks that an older
+  version saved after block changes keep their wrong light until blocks next to them change again.
+- **Making chunks no longer stalls the server.** The chunks that a player needs were made as fast as the server could, in one tick:
+  with the terrain of the newest build that took up to several seconds and the tick rate fell ("Server is behind"). A tick now
+  spends at most about 20 ms on chunks (one chunk always gets through), the players take turns, and a tick that was slower is
+  paid back with ticks that make no chunks.
+- The first start of a new world in 325-1640 could take 8 seconds or more, and the server then wrote "The server seems to be
+  frozen". It was not frozen: the terrain of this build (caves) is slow to make, and the chunks that one chunk's populate step
+  reaches into were all populated at once, one after the other. They are now only generated and are populated when something
+  asks for them, so a spawn area needs about half the chunks; the server shows its progress while it prepares the spawn area, and
+  the freeze watch no longer counts it.
+- A plugin command of a build with its own API got the server's player object, so `sender instanceof Player3xx` was always false
+  (the example plugin's `/top` said "Players only" in game). It now gets the build's own player type.
+- A world taken over twice in a row (for example 316, then 320, then 321) lost the chunks that nobody had visited in the middle
+  build: the remaining chunks of the older world are copied first.
+- The bridges of builds 313 to 321 mistook the player positions that the server gives them (x and z pairs) for x, y and z
+  triples. When the server held more than 3000 chunks, chunks near the players could be dropped and read again from the files.
+- The scripts `patch-client.bat` and `patch-client.sh` listed only the first four builds.
+
+### Known limits
+
+- The limits of 2.1.0 apply, except that items on the ground before a player joined are now shown to him.
+- The furnaces of the builds before 325-1640 still smelt only in the game of a player who has the chunk loaded.
+- A world taken over into 325-1640 keeps its old chunks exactly as they were made; the edge between the old land (no caves) and the
+  new land is visible. With `upgrade-old-terrain=true` the old chunks get the caves, ore blobs and extra trees too (the old land
+  changes; a building can be cut into by a cave).
+- A server holds the random block ticks to the chunks it has loaded (a square of 129 blocks around each player).
+- A cancelled `ItemSpawnEvent` leaves the item in the game of its owner only; a cancelled `ExplosionEvent` does not stop the
+  explosion in the game of the player (the game runs it).
+
 ## 2.1.0
 
 ### Added
@@ -35,7 +114,6 @@
 - A world taken over into 320 shows the edge between the converted land (without the new trees and ores) and the new land.
 - A furnace nobody has open only smelts in the games that have its chunk loaded.
 - Mobs that arrows make are copies in the other games (no AI of their own there); a hit on a copy is carried out by the game that runs the mob.
-- Items on the ground before a player joined are not shown to him.
 
 ## 2.0.0
 

@@ -23,6 +23,8 @@ The project provides:
 | `inf-20100313` | 12 | Adds sky and block light, block metadata, day and night, a very large world. | `net.thewellodev.api313` | `inf-20100227-1433` |
 | `inf-20100316` | 13 | As 20100313 (24000 tick day), plus items that fall and can be picked up. | `net.thewellodev.api316` | `inf-20100313`, `inf-20100227-1433` |
 | `inf-20100320` | 14 | As 20100316, plus trees and ores, chests and furnaces, explosions, fire that can be punched out. | `net.thewellodev.api320` | `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
+| `inf-20100321` | 15 | The world of 20100320 unchanged; the client has a session check that the patcher switches off. | `net.thewellodev.api321` | `inf-20100320`, `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
+| `inf-20100325-1640` | 16 | As 20100321, plus caves, ore blobs and block ticks (leaves decay, grass and fire spread, flowers die in the dark); the server ticks the blocks. | `net.thewellodev.api325` | `inf-20100321`, `inf-20100320`, `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
 | `inf-20100630-1340` | 11 | Mobs, items, minecarts, signs, chests and furnaces, health, inventory. | `net.thewellodev.api` | none |
 
 Builds are independent: nothing is carried over from a newer build to an older one, and every build keeps its own
@@ -44,8 +46,8 @@ worlds in `worlds/<game-version>/<level-name>/`. More builds can be added; see
 **Client**
 - A patcher that turns your original jar into a multiplayer-capable jar. It detects the build by itself.
 - A multiplayer menu on the title screen, direct connect, chat, other players with names, and PvP.
-- Block, metadata and light synchronisation, shared day and night, and (builds `inf-20100316` and `inf-20100320`) items on
-  the ground and the mobs that arrows make, which every player sees; in `inf-20100320` also shared chests and furnaces.
+- Block, metadata and light synchronisation, shared day and night, and (builds `inf-20100316` to `inf-20100325-1640`) items on
+  the ground and the mobs that arrows make, which every player sees; in `inf-20100320` and later also shared chests and furnaces.
 
 **Optional plugins** (in the release bundle, `server/optional-plugins/<build>/`)
 - `NameColor`: colours player names by role.
@@ -89,9 +91,9 @@ not by its file name.
 |---|---|
 | `common/` | Protocol definitions, the build registry (`GameVersion`) and the ASM hook tool, shared by server and client |
 | `server/src/` | Server core, control panel, world takeover |
-| `server/bridge/`, `bridge227/`, `bridge313/`, `bridge316/`, `bridge320/` | Bridges between the server and the original game classes of each build |
+| `server/bridge/`, `bridge227/`, `bridge313/`, `bridge316/`, `bridge320/`, `bridge321/`, `bridge325/` | Bridges between the server and the original game classes of each build |
 | `client/patcher/` | Patcher that adds multiplayer support to an original client jar |
-| `client/mod/`, `mod227/`, `mod313/`, `mod316/`, `mod320/` | Client-side multiplayer code of each build, added to the patched jar |
+| `client/mod/`, `mod227/`, `mod313/`, `mod316/`, `mod320/`, `mod321/`, `mod325/` | Client-side multiplayer code of each build, added to the patched jar |
 | `api/<build>/` | The plugin API of each build |
 | `plugins/<build>/` | Example and bundled plugins of each build (`src/` with a `plugin.yml`) |
 | `release/` | Templates for the release bundle (end-user README, start scripts, `server.properties`, BetaCraft files) |

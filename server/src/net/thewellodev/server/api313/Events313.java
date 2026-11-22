@@ -154,6 +154,11 @@ public final class Events313 implements net.thewellodev.server.plugin.EventTrans
                 && a.getPitch() == b.getPitch();
     }
 
+    @Override
+    public net.thewellodev.api.command.CommandSender wrapSender(net.thewellodev.api.command.CommandSender sender) {
+        return sender instanceof Player ? api.player((Player) sender) : sender;
+    }
+
     /** For callers that hold a plain player: the API's view of it. */
     public Player313 view(Player p) {
         return api.player(p);

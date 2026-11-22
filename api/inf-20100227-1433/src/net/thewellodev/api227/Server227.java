@@ -92,4 +92,25 @@ public interface Server227 {
 
     /** Shuts the server down cleanly. */
     void shutdown();
+
+    /** The names of the operators. */
+    java.util.Collection<String> getOperators();
+
+    /** The names of the banned players. */
+    java.util.Collection<String> getBannedPlayers();
+
+    /** The names on the white list. */
+    java.util.Collection<String> getWhitelistedPlayers();
+
+    /**
+     * Sends a message to every online player that has the permission, and to the console.
+     * @return the number of players that got it
+     */
+    int broadcastMessage(String message, String permission);
+
+    /** The online players whose name starts with (or, when none does, contains) the text, ignoring case. */
+    java.util.List<? extends Player227> matchPlayers(String partialName);
+
+    /** How long the server has been running, in milliseconds. */
+    long getUptimeMillis();
 }

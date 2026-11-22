@@ -347,6 +347,11 @@ public class SimplePluginManager implements PluginManager {
         return l;
     }
 
+    /** The sender in the form the plugins of this build expect (see {@link EventTranslator#wrapSender}). */
+    public net.thewellodev.api.command.CommandSender wrapSender(net.thewellodev.api.command.CommandSender sender) {
+        return translator == null ? sender : translator.wrapSender(sender);
+    }
+
     /** Calls an event: the server's own plugins first, then (for a build with its own API) the translated event. */
     public <T extends Event> T callEvent(T event) {
         dispatch(event);

@@ -59,4 +59,33 @@ public interface World316 {
     boolean isValidBlock(int typeId);
 
     void save();
+
+    /** The players whose position is within {@code radius} blocks of {@code center}, nearest first. */
+    List<? extends Player316> getNearbyPlayers(Location316 center, double radius);
+
+    /**
+     * Sets every block of the box between two corners (both included, in any order) to a block type and data value.
+     * The box may hold at most 32768 blocks. Call it from the main thread.
+     * @return how many blocks changed
+     * @throws IllegalArgumentException when the box is too large or the type is not valid for this build
+     */
+    int fill(int x1, int y1, int z1, int x2, int y2, int z2, int typeId, int data);
+
+    /** The number of ticks of a day in this build (12000 in inf-20100313, 24000 in the others). */
+    int getDayLength();
+
+    /** True when the time of day is before dusk (13/24 of the day). */
+    boolean isDay();
+
+    /** The opposite of {@link #isDay()}. */
+    boolean isNight();
+
+    /**
+     * The stored block light (0 to 15: torches, fire, lava) of a block, or -1 when the block is outside the world or its
+     * chunk is not in memory.
+     */
+    int getBlockLightAt(int x, int y, int z);
+
+    /** The stored sky light (0 to 15) of a block, or -1 (see {@link #getBlockLightAt}). The darkness of the night is not subtracted. */
+    int getSkyLightAt(int x, int y, int z);
 }

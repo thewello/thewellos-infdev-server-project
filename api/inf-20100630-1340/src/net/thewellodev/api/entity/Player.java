@@ -2,6 +2,7 @@ package net.thewellodev.api.entity;
 
 import net.thewellodev.api.ItemStack;
 import net.thewellodev.api.Location;
+import net.thewellodev.api.block.Block;
 import net.thewellodev.api.World;
 import net.thewellodev.api.command.CommandSender;
 
@@ -72,8 +73,20 @@ public interface Player extends CommandSender {
     /** Sets an inventory slot, or empties it when item is null. The change is applied to the player's client. */
     void setInventorySlot(int slot, ItemStack item);
 
-    /** 0 = survival, 1 = creative. */
+    /** 0 = survival, 1 = creative. (The builds 316 and later also have 2 = spectator: invisible, flying through walls.) */
     int getGameMode();
 
     void setGameMode(int mode);
+
+    /** The location of the player's eyes (the feet location raised by 1.62 blocks), with the player's yaw and pitch. */
+    Location getEyeLocation();
+
+    /**
+     * The first block that is not air or liquid on the line of sight, or null when there is none within
+     * {@code maxDistance} blocks (1 to 100) or the line leaves the loaded chunks. Call it from the main thread.
+     */
+    Block getTargetBlock(int maxDistance);
+
+    /** The time (milliseconds since 1970) at which this player connected. */
+    long getLoginTime();
 }

@@ -62,15 +62,35 @@ public final class GameVersion {
             "7e6b3048a97384397e1adfb4458eafd3a0aae52845b816cfc6f138902da5e92a", true, "TWBridge320",
             "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
 
+    /**
+     * The build after 20100320: the game world is the same code (so the same bridge logic, items, mobs, chests and
+     * explosions as 320); only the client changed (a session check against a server that no longer exists).
+     */
+    public static final GameVersion INF_20100321 = new GameVersion(
+            "inf-20100321", "Infdev inf-20100321", 15,
+            "9dd5ed05f557d508766d8b9d4fd3f77adc69c1943fd47f51058191ab81fc55bf", true, "TWBridge321",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    /**
+     * The build after 20100321 (the builds between them are not supported): obfuscated names moved again; caves, ore
+     * blobs, block ticks (leaves decay, fire spreads, grass spreads, flowers die in the dark), double slabs, and the
+     * session check is gone.
+     */
+    public static final GameVersion INF_20100325_1640 = new GameVersion(
+            "inf-20100325-1640", "Infdev inf-20100325-1640", 16,
+            "1942c49c85167375182b4d181e71f2a199f223ae8f442332c4dbfaa5596c20a0", true, "TWBridge325",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
     private static final GameVersion[] ALL = {INF_20100630_1340, INF_20100227_1433, INF_20100313, INF_20100316,
-            INF_20100320};
+            INF_20100320, INF_20100321, INF_20100325_1640};
 
     /**
      * The builds a world can be converted along, from the oldest to the newest: from each one to the next.
      * inf-20100630-1340 is not in it: many builds lie between it and 20100313 that are not supported yet.
      */
     public static GameVersion[] chronological() {
-        return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316, INF_20100320};
+        return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316, INF_20100320,
+                INF_20100321, INF_20100325_1640};
     }
 
     public final String id;

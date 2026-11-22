@@ -89,6 +89,30 @@ public interface GameBridge {
         return -1;
     }
 
+    /**
+     * The stored light of a block: the sky light or the block light (0 to 15), as the chunk has it, or -1 when the build
+     * has no light or the chunk is not in memory.
+     */
+    default int getRawLight(int x, int y, int z, boolean sky) {
+        return -1;
+    }
+
+    /**
+     * Builds from inf-20100325-1640 on: the bridge ticks the furnaces (they smelt on the server). The furnaces that a player has
+     * open do not tick on the server: the game of that player ticks them while the window is open and hands the contents back
+     * when it is closed.
+     * @param xyz x, y and z of each furnace that is open
+     */
+    default void setLockedTiles(int[] xyz) {
+    }
+
+    /**
+     * Builds from inf-20100325-1640 on: when a chunk of an older build's world is taken over, the populate step of this build
+     * runs on it once (caves, ore blobs), so that the old land and the new land fit together. Called before {@link #load}.
+     */
+    default void setUpgradeOldChunks(boolean on) {
+    }
+
     /** Number of chunks in memory, or -1 when the build cannot tell. */
     default int getLoadedChunkCount() {
         return -1;

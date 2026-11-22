@@ -163,4 +163,32 @@ public final class Server227Impl implements Server227 {
     public void shutdown() {
         server.shutdown();
     }
+
+    public Collection<String> getOperators() {
+        return server.getOperators();
+    }
+
+    public Collection<String> getBannedPlayers() {
+        return server.getBannedPlayers();
+    }
+
+    public Collection<String> getWhitelistedPlayers() {
+        return server.getWhitelistedPlayers();
+    }
+
+    public int broadcastMessage(String message, String permission) {
+        return server.broadcastMessage(message, permission);
+    }
+
+    public List<? extends Player227> matchPlayers(String partialName) {
+        List<Player227> list = new ArrayList<Player227>();
+        for (Player p : server.matchPlayers(partialName)) {
+            list.add(api.player(p));
+        }
+        return list;
+    }
+
+    public long getUptimeMillis() {
+        return server.getUptimeMillis();
+    }
 }
