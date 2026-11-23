@@ -29,6 +29,9 @@ recognised, how worlds move between builds, and how a new build is added. The no
 | `inf-20100320` | 14 | `7e6b3048a97384397e1adfb4458eafd3a0aae52845b816cfc6f138902da5e92a` |
 | `inf-20100321` | 15 | `9dd5ed05f557d508766d8b9d4fd3f77adc69c1943fd47f51058191ab81fc55bf` |
 | `inf-20100325-1640` | 16 | `1942c49c85167375182b4d181e71f2a199f223ae8f442332c4dbfaa5596c20a0` |
+| `inf-20100327` | 17 | `c696d187821b9034046e4572dfdb579a60b80530ff02598aadb6322e8ad8b247` |
+| `inf-20100330-1611` | 18 | `3beb70d42f81f717f04a8c47b847854eda4aabe5b5a23d62e6b9ef86a8aec64d` |
+| `inf-20100413-1953` | 19 | `6b9513e811a83cbf81ac57bc0c8d01a02fa3f0a88a284afe08a5145961002679` |
 | `inf-20100630-1340` | 11 | `92e4969e76cd242a53ae9ca10206ece9e6596b441ff9896fd9a34b9b61ad072e` |
 
 The registry is `common/src/net/thewellodev/protocol/GameVersion.java`.
@@ -39,7 +42,7 @@ The registry is `common/src/net/thewellodev/protocol/GameVersion.java`.
   patcher writes (`TheWelloDev-Game-Version`) or, for an original jar, by its SHA-256. If no jar of the chosen build is
   found, the server does not start and names what it expected. Jars of other builds in the folder are skipped.
 - **Class loader.** `GameClassLoader` loads the game classes of the chosen build and applies the build's ASM hooks.
-  For builds 227, 313, 316, 320, 321 and 325-1640 it also replaces the unseeded `new Random()` calls of the terrain generators with a seeded
+  For builds 227, 313, 316, 320, 321, 325-1640, 327, 330-1611 and 413-1953 it also replaces the unseeded `new Random()` calls of the terrain generators with a seeded
   generator (`TWSeed`), so `level-seed` works and the same seed gives the same land.
 - **Login.** The client sends the protocol number of its build. A different number is refused.
 - **Commands.** Built-in commands that make no sense for a build (for example `/give` on a build without items) are not
@@ -60,19 +63,25 @@ half-finished conversion never leaves a world that cannot be opened:
    folder is reported.
 4. The old folder is only read, never changed. Do not delete it before the conversion is complete.
 
-Steps that exist: 227 to 313, 313 to 316, 316 to 320, 320 to 321, 321 to 325-1640, and from every older one of these builds to the newer ones. The generator of 325-1640 makes caves and ore blobs, so land made after a takeover into it differs from the converted land at its edges. 320 to 321 changes nothing in the terrain (the world code of the two builds is identical). The chunk files of these builds use the same container and
+Steps that exist: 227 to 313, 313 to 316, 316 to 320, 320 to 321, 321 to 325-1640, 325-1640 to 327, 327 to 330-1611, 330-1611 to 413-1953, and from every older one of these builds to the newer ones. The generator of 325-1640 makes caves and ore blobs, so land made after a takeover into it differs from the converted land at its edges. 320 to 321 changes nothing in the terrain (the world code of the two builds is identical). The chunk files of these builds use the same container and
 tags; the light of a 227 chunk (which has none) is worked out when the chunk is read. The terrain generators of 313 and
 316 are the same code, so land made after a 313 to 316 takeover fits the converted land (apart from the random scatter
 of flowers). The generator of 320 adds trees and ores, so land made after a takeover into 320 differs from the converted
 land at its edge (the converted chunks keep what they have). Into 325-1640 the converted chunks stay as they were made; with the setting
-`upgrade-old-terrain=true` they get the populate step of the new build once (caves, ore blobs, more trees) and the land fits. Converting back to an older build is not supported. There is no step to `inf-20100630-1340`: many builds lie
+`upgrade-old-terrain=true` they get the populate step of the new build once (caves, ore blobs, more trees) and the land fits. Into 327 the chunks are not copied as they are: that build saves its worlds in the Alpha level format (folders named
+by base 36 numbers, see [versions/inf-20100327.md](versions/inf-20100327.md)), so the bridge writes each chunk it takes over in the new layout, and
+`/convertworld` converts the others a few in each tick and drops them from memory (a world of any size can be converted). Land made after a
+takeover into 327 has the new terrain (sea level 64, no caves), so its edge to the converted land is visible; the converted chunks stay as they were made.
+From 327 into 330-1611 and from 330-1611 into 413-1953 the layout is the same (Alpha), so the chunk files are moved over as the files they are; the older world
+may be in either layout, the bridge reads both. When every chunk of the older world is in the new one, the older world is deleted
+(`delete-old-world=false` keeps it). Converting back to an older build is not supported. There is no step to `inf-20100630-1340`: many builds lie
 between it and the others that are not supported yet, and its world format differs.
 
 A new build adds a case to `WorldConverter.supportsStep`, and its bridge converts the chunk it reads.
 
 ## Inventories across builds
 
-Builds 227, 313, 316, 320, 321 and 325-1640 keep the inventory on the client, and each build starts a player with its own default one. The
+Builds 227, 313, 316, 320, 321, 325-1640, 327, 330-1611 and 413-1953 keep the inventory on the client, and each build starts a player with its own default one. The
 client reports its inventory to the server (`INVENTORY_REPORT`, 32-bit counts); the server saves it as
 `players/<name>.inv` and sends it back after login (`INVENTORY_SYNC`). A player who was saved keeps the inventory when
 the server moves to a newer build; a player who was never saved starts with the default of the build he joins.
@@ -95,7 +104,8 @@ The game of each client of these builds runs item entities and the mobs that an 
 - **Items.** The client reports each new item (`DROP_SPAWN`) and each item that is gone (`DROP_REMOVE`); the server passes
   them to the players near the item, whose clients show a copy. A shared item is only picked up when the server has given it
   to that game: the client asks (`DROP_CLAIM`, the pick-up method is hooked), the first one asked gets it
-  (`DROP_CLAIM_RESULT`) and the other copies are removed at once. When a player joins (and once a minute) the server asks every game to announce its items again (`DROP_RESYNC`), and it shows its own items (the ones that blocks drop during a tick) to players who walk into their range, so that a player sees the items that lay there before he came.
+  (`DROP_CLAIM_RESULT`) and the other copies are removed at once. A game asks only when the game would pick the item up (the item's pick-up delay, 40 ticks for a thrown item, is over) and never for an item that was taken away. The server keeps a registry of every shared item
+  with its position (and the numbers of the items that are gone): a player who comes within 128 blocks of an item that player has not seen gets it, an item that was taken is never shown again, and a game that announces an item again (`DROP_RESYNC`, when a player joins and once a minute) cannot bring a taken item back. The server also shows its own items (the ones that blocks drop during a tick) in the same way.
 - **Arrows.** An arrow that crosses another player's body reports a hit to the server, which applies the PvP rules.
 - **Mobs.** A mob that an arrow makes (sheep, pig, skeleton, creeper, spider, zombie) lives in the game of the player who shot
   the arrow. That client reports it a few times a second with everything the renderer needs (position, head and body
@@ -132,7 +142,7 @@ progress included, back when the window is closed.
 
 ## Freeze reports
 
-The server (`logs/freeze-*.txt`, a tick over 8 seconds) and the clients of builds 227, 313, 316, 320, 321 and 325-1640
+The server (`logs/freeze-*.txt`, a tick over 8 seconds) and the clients of builds 227, 313, 316, 320, 321, 325-1640, 327, 330-1611 and 413-1953
 (`%USERPROFILE%\.thewellodev\freeze-*.txt`, no tick for 8 seconds while connected) write the stack of the stuck thread.
 
 ## Adding a build

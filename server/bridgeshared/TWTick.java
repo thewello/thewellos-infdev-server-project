@@ -24,6 +24,12 @@ public final class TWTick {
     private static final LinkedHashSet<Long> changes = new LinkedHashSet<Long>();
     private static final List<double[]> items = new ArrayList<double[]>();
     private static Field itemStack, stackCount, stackId, stackDamage, posX, posY, posZ, motX, motY, motZ;
+    /** 0, or 1 for inf-20100413-1953 and later, whose entity fields have names one letter further (g, h, i became h, i, j). */
+    public static int fieldShift;
+
+    private static String shifted(char name) {
+        return String.valueOf((char) (name + fieldShift));
+    }
 
     private static long pack(int x, int y, int z) {
         return ((long) (x + (1 << 25)) << 33) | ((long) (z + (1 << 25)) << 7) | y;
@@ -65,12 +71,12 @@ public final class TWTick {
                     stackCount = st.getField("a");
                     stackId = st.getField("c");
                     stackDamage = st.getField("d");
-                    posX = base.getField("g");
-                    posY = base.getField("h");
-                    posZ = base.getField("i");
-                    motX = base.getField("j");
-                    motY = base.getField("k");
-                    motZ = base.getField("l");
+                    posX = base.getField(shifted('g'));
+                    posY = base.getField(shifted('h'));
+                    posZ = base.getField(shifted('i'));
+                    motX = base.getField(shifted('j'));
+                    motY = base.getField(shifted('k'));
+                    motZ = base.getField(shifted('l'));
                 }
                 Object stack = itemStack.get(e);
                 if (stack != null) {
@@ -90,5 +96,96 @@ public final class TWTick {
         List<double[]> out = new ArrayList<double[]>(items);
         items.clear();
         return out;
+    }
+    // ----- falling sand and gravel ----------------------------------------------------------------------------
+
+    /** What the falling blocks need of the world: read a block, and set one (the setting tells the players and the neighbours). */
+    public interface Host {
+        int block(int x, int y, int z);
+
+        void set(int x, int y, int z, int id);
+    }
+
+    private static final class Faller {
+        final int x, z, id;
+        int y;
+        double pos, speed;
+
+        Faller(int x, int y, int z, int id) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.id = id;
+            this.pos = y;
+        }
+    }
+
+    private static final List<Faller> fallers = new ArrayList<Faller>();
+    private static Host sandHost;
+
+    private static boolean sandFree(int id) {
+        return id == 0 || (id >= 8 && id <= 11) || id == 51;
+    }
+
+    /**
+     * Hook: the sand or gravel block at this place was told to fall (the game moves it to the lowest free cell at once). It
+     * falls by cells instead, with gravity, one step in each tick of the bridge, so that the players see it fall.
+     * @return true: the game's own code does not run
+     */
+    public static boolean sand(Object world, int x, int y, int z) {
+        Host h = sandHost;
+        if (h == null || quiet || y <= 0 || y >= 128) {
+            return h != null;
+        }
+        int id = h.block(x, y, z);
+        if (id != 12 && id != 13) {
+            return true;
+        }
+        for (Faller f : fallers) {
+            if (f.x == x && f.z == z && f.y == y) {
+                return true;
+            }
+        }
+        if (fallers.size() < 4000) {
+            fallers.add(new Faller(x, y, z, id));
+        }
+        return true;
+    }
+
+    /** Moves the falling blocks on by one tick; the bridge calls it in every tick. */
+    public static void sandTick(Host host) {
+        sandHost = host;
+        if (fallers.isEmpty()) {
+            return;
+        }
+        for (Faller f : new ArrayList<Faller>(fallers)) {
+            if (host.block(f.x, f.y, f.z) != f.id) {
+                fallers.remove(f);
+                continue;
+            }
+            f.speed = (f.speed - 0.04) * 0.98;
+            f.pos += f.speed;
+            int target = (int) Math.floor(f.pos);
+            boolean landed = false;
+            while (f.y > target && !landed) {
+                if (f.y <= 0 || !sandFree(host.block(f.x, f.y - 1, f.z))) {
+                    landed = true;
+                } else {
+                    int from = f.y;
+                    f.y--;
+                    host.set(f.x, f.y, f.z, f.id); // the block is at its new place first: its own neighbour call finds it there
+                    host.set(f.x, from, f.z, 0);
+                }
+            }
+            if (!landed && (f.y <= 0 || !sandFree(host.block(f.x, f.y - 1, f.z)))) {
+                landed = true;
+            }
+            if (landed) {
+                if (f.y <= 0) {
+                    host.set(f.x, f.y, f.z, 0); // fell out of the world
+                }
+                fallers.remove(f);
+            }
+        }
     }
 }

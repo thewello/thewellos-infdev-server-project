@@ -1,5 +1,93 @@
 # Changelog
 
+## 2.3.0
+
+### Added
+
+- **Plugin APIs** (every build): the names and helpers of the Bukkit API of the time that fit the build, as `default` methods or
+  small additions, so nothing that worked before changes. New shared classes `BlockFace` and `Vector`; `Location`: arithmetic,
+  `getDirection()`, `equals`/`hashCode`; `Block`: `isEmpty()`, `isLiquid()`, `getRelative(face)`, `getFace(block)`, chunk
+  coordinates; `World`: `getHighestBlockAt`, `getMaxHeight()` and location overloads; `Server`: `getViewDistance()`,
+  `getSpawnRadius()`, `getWorlds()`, `getWorld(name)` and the Bukkit aliases; `Player`: `performCommand`, `teleport(player)`;
+  `BlockPlaceEvent.getBlockPlaced()`/`getReplacedTypeId()`; `PlayerRespawnEvent.isBedSpawn()`. See "Added in 2.3.0" in each
+  `docs/plugin-api/<build>.md`.
+- **Support for `inf-20100413-1953`** (protocol 19): server bridge, client mod, plugin API (`api413`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 330-1611, 327, 325-1640, 321, 320, 316, 313 and 227. (The build 20100413-1951 between
+  330-1611 and this one has no known copy; what it added is in this build: beaches, erosion and big trees, leaves that do not decay,
+  arrows that make no mobs, the debug screen counts, and several fixes.) The jar moved many names: the world class is `a/a/g`, the
+  living entity `a/c/f`, every field of the entity classes is one letter further, the light queue is worked off by one call, and the
+  chunks hold entities. The mob classes of this build have no constructor, so there are no mobs; the game's mob spawner, which
+  failed with a stack trace in every tick, is switched off by the patcher. The world of the build is in the same Alpha format.
+- **Support for `inf-20100330-1611`** (protocol 18): server bridge, client mod, plugin API (`api330`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 327, 325-1640, 321, 320, 316, 313 and 227. (The build 20100330-1203 between 327 and this
+  one has no known copy; what it added is in this build and was checked here: the tag `TerrainPopulated` in the chunk files,
+  furnaces that smelt in 8 seconds again, containers that save reliably, better light for slabs and for the top of the world,
+  broken blocks that do not keep their data value.) The jar has the same class names as 20100327; the patcher tells the two builds
+  apart by the tag TerrainPopulated in the chunk class, the server by the checksum.
+- **TerrainPopulated.** The server reads the tag from the chunk files and writes it: a chunk file with the tag 0 (saved by the game's
+  single player before it was populated) is populated when it is needed; a chunk file without the tag (20100327 and older builds)
+  counts as populated and is never populated again. The game's own world class reads a world made by the server and sees exactly
+  the blocks of the files (the single player of 20100327 makes ores and trees again after a load).
+- **Takeover from 327 into 330-1611** moves the chunk files over as the files they are (the Alpha layout is the same), a chunk at a
+  time when it is needed and the rest in the background (`/convertworld`); a world of any older build is taken over as into 327.
+  An older world may be in either layout. The older world is deleted when every chunk is over (`delete-old-world`).
+- **Support for `inf-20100327`** (protocol 17): server bridge, client mod, plugin API (`api327`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 325-1640, 321, 320, 316, 313 and 227. (The build 20100325-1545 and the builds between
+  have no known copy.)
+- **The Alpha level format.** This build saves its worlds in the Alpha level format, and so does the server now: `level.dat` with a
+  `Data` compound (seed, spawn, time, size on disk, last played and a player entity) and one GZIP NBT file for each chunk in the
+  folders `<X mod 64>/<Z mod 64>` with the names `c.<X>.<Z>.dat` (numbers in base 36). A world of the server can be opened in the
+  game's own single player menu, and a world of the game can be put into the server's `worlds/inf-20100327/` folder. The game's
+  own world class reads a world made by the server and sees the same blocks as the files hold (checked with a test program).
+- **World takeover into the Alpha format.** The chunks of an older build's world (flat folder of `c.X.Z.dat` files with decimal
+  numbers) are converted when they are first needed, and `/convertworld` converts the rest a few in each tick (the tick spends at
+  most about 20 ms on it), dropping each chunk from memory after it is written: a world of any size can be converted while the
+  server runs, with little memory (tested with 6561 chunks and 200 MB of heap). A chunk that needs no change is copied as the file
+  it is; the chunks of 20100227, which have no light, are read, lit by the game's own code and written. Converted chunks stay
+  exactly as they were made.
+- The title screen's greyed "Multi player" button of this build is the multiplayer menu; the pause menu's "Quit game" and the
+  death screen's "Title menu" disconnect.
+
+- **The old world is deleted when the takeover is over.** When every chunk of an older build's world is in the new world (the chunks
+  that players visited count, not only those of `/convertworld`), the console says so and the older world's folder is deleted. The check
+  runs at each autosave, when the server stops and at the end of `/convertworld`. `delete-old-world=false` in `server.properties` keeps it.
+
+### Fixed
+
+- **Sand and gravel fall by cells** (builds 20100325-1640 to 20100413-1953). The games of these builds move a sand or gravel block
+  to the lowest free cell at once, so a block that lost its support seemed to teleport. The server now lets it fall, one step in
+  each tick with gravity (0.04 per tick, 0.98 drag, as the falling sand of the Alpha server), and the players see it on its way; the
+  games do not run their own fall in a multiplayer world. A block that falls out of the world is removed.
+- **Chunks arrive about one and a half times as fast.** The time of a tick that may go to making chunks is 28 ms (it was 20 ms);
+  the ticks that follow a long one still make none, so the tick rate holds.
+
+- **Items that appeared twice** (builds 20100316 to 20100330-1611). A thrown or dropped item next to another player went into that
+  player's inventory and also stayed on the ground. Two causes: a game asked for the item while the game could not pick it up yet
+  (the pick-up delay of a thrown item is 2 seconds), so the server took the item away from the other players at once and the
+  answer was used up for nothing; and the copy that the server had taken away still lay in the world until the game's next tick and
+  could be picked up in that time, without asking. A game now asks only when the item can be picked up, and an item that was taken
+  away cannot be picked up.
+- **Items that other players did not see.** An item thrown near another player was taken away from that player by the thrower's own
+  claim (see above), and an item far away or announced before a player came was shown only by chance. The server now keeps every
+  shared item and its position, shows it to every player who comes within 128 blocks, and never shows an item again that was taken
+  (a late announcement of the thrower's game could bring it back).
+- **The first-person arm swung with other players** (builds 20100227 to 20100330-1611). The game draws the own arm with the shared
+  player model in the pose it was last given, and in multiplayer that was the pose of the last other player drawn, so the own arm
+  moved when someone else walked. The arm is put at rest before it is drawn.
+- **A flying player fell when a window opened** (builds 20100316 to 20100330-1611, game modes 1 and 2). The flight is moved by the keys,
+  and the keys are not read while the inventory, a menu or the chat is open, so the gravity took over. A flying player now hovers
+  while a window is open.
+- The console command `/plugins` printed its heading in Turkish ("Plugin'ler"); it says "Plugins" now.
+- `/convertworld` ran the whole conversion in one server tick: the console task that queues itself again was run again at once.
+  Now a task that queues itself runs on the next tick.
+
+### Known limits
+
+- The chunk files of this build hold no mark for "populated chunk": the game itself populates a chunk again when it loads one next to
+  it in single player (ores and trees regenerate; the wiki lists it as a bug). The server never populates a chunk it read from a file.
+- The generator of this build has no caves and no flowers (the build has none yet). Land of a world taken over from an older
+  build meets the new land at a visible edge.
+
 ## 2.2.0
 
 ### Added

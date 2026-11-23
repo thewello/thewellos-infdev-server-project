@@ -115,4 +115,83 @@ public class Location313 implements Cloneable {
     public String toString() {
         return String.format("Location313{x=%.2f,y=%.2f,z=%.2f,yaw=%.1f,pitch=%.1f}", x, y, z, yaw, pitch);
     }
+
+    /** Adds the position of another location (the world and the look direction stay as they are). */
+    public Location313 add(Location313 o) {
+        x += o.x;
+        y += o.y;
+        z += o.z;
+        return this;
+    }
+
+    public Location313 subtract(Location313 o) {
+        x -= o.x;
+        y -= o.y;
+        z -= o.z;
+        return this;
+    }
+
+    public Location313 subtract(double dx, double dy, double dz) {
+        return add(-dx, -dy, -dz);
+    }
+
+    public Location313 multiply(double m) {
+        x *= m;
+        y *= m;
+        z *= m;
+        return this;
+    }
+
+    public Location313 zero() {
+        x = 0;
+        y = 0;
+        z = 0;
+        return this;
+    }
+
+    public double lengthSquared() {
+        return x * x + y * y + z * z;
+    }
+
+    public double length() {
+        return Math.sqrt(lengthSquared());
+    }
+
+    public net.thewellodev.api.util.Vector toVector() {
+        return new net.thewellodev.api.util.Vector(x, y, z);
+    }
+
+    /** The direction that the yaw and the pitch point to (a vector of length 1). */
+    public net.thewellodev.api.util.Vector getDirection() {
+        double yawRad = Math.toRadians(yaw), pitchRad = Math.toRadians(pitch);
+        double xz = Math.cos(pitchRad);
+        return new net.thewellodev.api.util.Vector(-xz * Math.sin(yawRad), -Math.sin(pitchRad), xz * Math.cos(yawRad));
+    }
+
+    /** The block coordinate of a position. */
+    public static int locToBlock(double d) {
+        return floor(d);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof Location313)) {
+            return false;
+        }
+        Location313 l = (Location313) o;
+        return world == l.world && Double.compare(x, l.x) == 0 && Double.compare(y, l.y) == 0 && Double.compare(z, l.z) == 0
+                && Float.compare(yaw, l.yaw) == 0 && Float.compare(pitch, l.pitch) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+        int h = 7;
+        h = 19 * h + (world == null ? 0 : System.identityHashCode(world));
+        h = 19 * h + (int) (Double.doubleToLongBits(x) ^ (Double.doubleToLongBits(x) >>> 32));
+        h = 19 * h + (int) (Double.doubleToLongBits(y) ^ (Double.doubleToLongBits(y) >>> 32));
+        h = 19 * h + (int) (Double.doubleToLongBits(z) ^ (Double.doubleToLongBits(z) >>> 32));
+        h = 19 * h + Float.floatToIntBits(yaw);
+        h = 19 * h + Float.floatToIntBits(pitch);
+        return h;
+    }
 }

@@ -235,14 +235,102 @@ public class ClientPatcher {
      * method, and the server sends what they changed.
      */
     public static HookTransformer createTransformer325() {
-        final String H = "TW325Client";
-        final String W = "net/minecraft/a/a/g";
-        HookTransformer t = createTransformerInfdev(H, true, W, "c", "b", "f", "net/minecraft/client/q", false, true);
-        addLateHooks(t, H, W, "net/minecraft/a/a/c/a", "net/minecraft/a/a/c/s");
+        return createTransformer325(false);
+    }
+
+    /**
+     * Hooks for inf-20100327. The world is saved in the Alpha level format by the game itself now: the world's save method
+     * is cut out (the mod's world is never saved), and the obfuscated names moved again (world class f, blocks in a/a/b,
+     * title screen p, button class c/o, settings class j).
+     */
+    public static HookTransformer createTransformer327() {
+        return createTransformer325(true);
+    }
+
+    /**
+     * Hooks for inf-20100330-1611: the same class and member names as 20100327 (the jars have the same class names), so the hooks
+     * are the same; the client class of the mod is TW330Client.
+     */
+    public static HookTransformer createTransformer330() {
+        return createTransformer325(true, "TW330Client");
+    }
+
+    private static HookTransformer createTransformer325(final boolean is327) {
+        return createTransformer325(is327, is327 ? "TW327Client" : "TW325Client");
+    }
+
+    /**
+     * Hooks for inf-20100413-1953: the world class is g again (as in 325-1640), its tick method is i, and the living entity is
+     * a/c/f (the class a/c/e is the entity registry now). The screens, the digging controller, the renderer and the settings class
+     * keep their names from 20100327.
+     */
+    public static HookTransformer createTransformer413() {
+        HookTransformer t = createTransformer325(true, "TW413Client", "net/minecraft/a/a/g", "i", "h", "net/minecraft/a/c/f");
+        // The game's mob spawner (a/a/b, called by the digging controller every tick) makes a mob by reflection with the mob's
+        // constructor, and the mob classes of this build have none: it fails and prints a stack trace again and again. There are
+        // no mobs in the multiplayer game, so the spawner does nothing.
+        t.custom("net/minecraft/a/a/b", new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "a", "(Lnet/minecraft/a/a/g;)V");
+                if (m == null) {
+                    return false;
+                }
+                m.instructions.clear();
+                m.tryCatchBlocks.clear();
+                if (m.localVariables != null) {
+                    m.localVariables.clear();
+                }
+                m.instructions.add(new InsnNode(Opcodes.RETURN));
+                return true;
+            }
+        });
+        return t;
+    }
+
+    private static HookTransformer createTransformer325(final boolean is327, final String hookClass) {
+        return createTransformer325(is327, hookClass, is327 ? "net/minecraft/a/a/f" : "net/minecraft/a/a/g", is327 ? "h" : "f",
+                is327 ? "h" : "f", "net/minecraft/a/c/e");
+    }
+
+    private static HookTransformer createTransformer325(final boolean is327, final String hookClass, final String worldName,
+                                                        final String tick, final String clientTick, final String livingBase) {
+        final String H = hookClass;
+        final String W = worldName;
+        final String tickName = tick;
+        final String entityTickName = is327 ? "c" : "b";
+        Screens screens = is327
+                ? new Screens("net/minecraft/client/c/o", "net/minecraft/client/c/c", "net/minecraft/client/c/e",
+                "net/minecraft/client/c/m")
+                : Screens.DEFAULT;
+        HookTransformer t = createTransformerInfdev(H, true, W, "c", "b", clientTick,
+                is327 ? "net/minecraft/client/p" : "net/minecraft/client/q", false, true, screens);
+        addLateHooks(t, H, W, is327 ? "net/minecraft/a/a/b/a" : "net/minecraft/a/a/c/a",
+                is327 ? "net/minecraft/a/a/b/s" : "net/minecraft/a/a/c/s", livingBase);
+        addSandHook(t, H, W, is327 ? "net/minecraft/a/a/b/w" : "net/minecraft/a/a/c/w");
+        if (is327) {
+            // The game saves its world (level.dat and the chunks, every 200 ticks and when the world is closed). This
+            // game's world comes from the server and is never saved: the private save method does nothing. The body is
+            // replaced as a whole, so that no dead code is left (the old verifier of these class files rejects that).
+            t.custom(W, new HookTransformer.Custom() {
+                public boolean apply(ClassNode cn) {
+                    MethodNode m = findMethod(cn, "a", "(Z)V");
+                    if (m == null) {
+                        return false;
+                    }
+                    m.instructions.clear();
+                    m.tryCatchBlocks.clear();
+                    if (m.localVariables != null) {
+                        m.localVariables.clear();
+                    }
+                    m.instructions.add(new InsnNode(Opcodes.RETURN));
+                    return true;
+                }
+            });
+        }
         // The game's settings object (client/k) no longer keeps the session id of the account (it was for the session
         // check): the constructor passes it on to the mod through a system property, so that online-mode servers can still
         // verify the player
-        t.custom("net/minecraft/client/k", new HookTransformer.Custom() {
+        t.custom(is327 ? "net/minecraft/client/j" : "net/minecraft/client/k", new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode m = findMethod(cn, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
                 if (m == null) {
@@ -269,7 +357,7 @@ public class ClientPatcher {
         // the world's entity tick also ticks the tile entities in its list: the furnaces smelt on the server (see TW325Client.tiles)
         t.custom(W, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
-                MethodNode m = findMethod(cn, "b", "()V");
+                MethodNode m = findMethod(cn, entityTickName, "()V");
                 if (m == null) {
                     return false;
                 }
@@ -282,7 +370,7 @@ public class ClientPatcher {
         });
         t.custom(W, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
-                MethodNode m = findMethod(cn, "f", "()V");
+                MethodNode m = findMethod(cn, tickName, "()V");
                 if (m == null) {
                     return false;
                 }
@@ -336,7 +424,12 @@ public class ClientPatcher {
      * </ul>
      */
     private static void addGameModeHooks(HookTransformer t, final String H) {
-        final String[] living = {"net/minecraft/a/c/e", "net/minecraft/a/c/e/a"};
+        addGameModeHooks(t, H, "net/minecraft/a/c/e");
+    }
+
+    /** @param livingBase the living entity class (a/c/e before 20100413-1953, a/c/f in it); the player class extends it */
+    private static void addGameModeHooks(HookTransformer t, final String H, final String livingBase) {
+        final String[] living = {livingBase, "net/minecraft/a/c/e/a"};
         for (String cls : living) {
             t.custom(cls, new HookTransformer.Custom() {
                 public boolean apply(ClassNode cn) {
@@ -410,12 +503,43 @@ public class ClientPatcher {
         });
     }
 
+    /**
+     * The first-person arm (builds 20100227 to 20100330-1611): the player renderer draws the arm of its shared model as the model last was
+     * posed. In multiplayer the model was last posed for another player, so the own arm swung with the walking of somebody else.
+     * The arm is put at rest first (the model's own pose method with all values 0).
+     */
+    private static void addFirstPersonArmHook(HookTransformer t) {
+        t.custom("net/minecraft/client/a/a/g", new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "a", "()V");
+                if (m == null) {
+                    return false;
+                }
+                InsnList il = new InsnList();
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                il.add(new FieldInsnNode(Opcodes.GETFIELD, "net/minecraft/client/a/a/g", "e", "Lnet/minecraft/client/b/h;"));
+                for (int i = 0; i < 5; i++) {
+                    il.add(new InsnNode(Opcodes.FCONST_0));
+                }
+                il.add(new LdcInsnNode(Float.valueOf(0.0625f)));
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/client/b/h", "b", "(FFFFFF)V", false));
+                m.instructions.insert(il);
+                return true;
+            }
+        });
+    }
+
     /** The hooks that builds 320 and later share: entities, item pick-ups, chests and furnaces, explosions. */
     private static void addLateHooks(HookTransformer t, final String H, final String W, String chestBlock,
                                      String furnaceBlock) {
+        addLateHooks(t, H, W, chestBlock, furnaceBlock, "net/minecraft/a/c/e");
+    }
+
+    private static void addLateHooks(HookTransformer t, final String H, final String W, String chestBlock,
+                                     String furnaceBlock, String livingBase) {
         addEntityAddHook(t, H, W);
         addItemPickupHook(t, H);
-        addGameModeHooks(t, H);
+        addGameModeHooks(t, H, livingBase);
         // Chest and furnace blocks: the click that opens them asks the server for the lock first
         addContainerHook(t, H, W, chestBlock);
         addContainerHook(t, H, W, furnaceBlock);
@@ -501,6 +625,34 @@ public class ClientPatcher {
      * The item entity's "touched by a player" method: the mod may cancel the pick-up (it returns true) until the server
      * has said that this game gets the item.
      */
+    /**
+     * Sand and gravel: the block moves itself to the lowest free cell at once (a "teleport"). In a multiplayer game the hook
+     * takes the fall over (see sandFall in the mods), so that the block falls by cells and every player sees it.
+     */
+    private static void addSandHook(HookTransformer t, final String H, final String world, String sandBlock) {
+        final String desc = "(L" + world + ";III)V";
+        t.custom(sandBlock, new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "e", desc);
+                if (m == null) {
+                    return false;
+                }
+                LabelNode cont = new LabelNode();
+                InsnList il = new InsnList();
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                il.add(new VarInsnNode(Opcodes.ILOAD, 2));
+                il.add(new VarInsnNode(Opcodes.ILOAD, 3));
+                il.add(new VarInsnNode(Opcodes.ILOAD, 4));
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "sandFall", "(Ljava/lang/Object;III)Z", false));
+                il.add(new JumpInsnNode(Opcodes.IFEQ, cont));
+                il.add(new InsnNode(Opcodes.RETURN));
+                il.add(cont);
+                m.instructions.insert(il);
+                return true;
+            }
+        });
+    }
+
     private static void addItemPickupHook(HookTransformer t, final String H) {
         t.custom("net/minecraft/a/c/c/b", new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
@@ -538,6 +690,20 @@ public class ClientPatcher {
         });
     }
 
+    /** The classes of the screens that the hooks need (their names moved in 20100327). */
+    private static final class Screens {
+        static final Screens DEFAULT = new Screens("net/minecraft/client/c/r", "net/minecraft/client/c/b",
+                "net/minecraft/client/c/d", "net/minecraft/client/c/l");
+        final String button, pause, death, hud;
+
+        Screens(String button, String pause, String death, String hud) {
+            this.button = button;
+            this.pause = pause;
+            this.death = death;
+            this.hud = hud;
+        }
+    }
+
     private static HookTransformer createTransformerInfdev(final String H, final boolean v313,
                                                            final String worldInternal, final String setBlockName,
                                                            final String metaName) {
@@ -565,8 +731,18 @@ public class ClientPatcher {
                                                            final String metaName, final String tickName,
                                                            final String titleInternal, final boolean sessionCheck,
                                                            final boolean noClientChecks) {
+        return createTransformerInfdev(H, v313, worldInternal, setBlockName, metaName, tickName, titleInternal,
+                sessionCheck, noClientChecks, Screens.DEFAULT);
+    }
+
+    private static HookTransformer createTransformerInfdev(final String H, final boolean v313,
+                                                           final String worldInternal, final String setBlockName,
+                                                           final String metaName, final String tickName,
+                                                           final String titleInternal, final boolean sessionCheck,
+                                                           final boolean noClientChecks, final Screens screens) {
         HookTransformer t = new HookTransformer();
         addMouseHook(t, "net/minecraft/client/a/d");
+        addFirstPersonArmHook(t);
         if (sessionCheck) {
             t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
                 public boolean apply(ClassNode cn) {
@@ -650,7 +826,7 @@ public class ClientPatcher {
         t.custom(titleInternal, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode init = findMethod(cn, "b", "()V");
-                MethodNode click = findMethod(cn, "a", "(Lnet/minecraft/client/c/r;)V");
+                MethodNode click = findMethod(cn, "a", "(L" + screens.button + ";)V");
                 if (init == null || click == null) {
                     return false;
                 }
@@ -733,10 +909,10 @@ public class ClientPatcher {
             }
         });
         // Pause menu: no saving or loading online, and a disconnect button (end of init, start of the click handler)
-        t.custom("net/minecraft/client/c/b", new HookTransformer.Custom() {
+        t.custom(screens.pause, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode init = findMethod(cn, "b", "()V");
-                MethodNode click = findMethod(cn, "a", "(Lnet/minecraft/client/c/r;)V");
+                MethodNode click = findMethod(cn, "a", "(L" + screens.button + ";)V");
                 if (init == null || click == null) {
                     return false;
                 }
@@ -766,10 +942,10 @@ public class ClientPatcher {
             }
         });
         // Death screen: Respawn instead of generating a new level
-        t.custom("net/minecraft/client/c/d", new HookTransformer.Custom() {
+        t.custom(screens.death, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode init = findMethod(cn, "b", "()V");
-                MethodNode click = findMethod(cn, "a", "(Lnet/minecraft/client/c/r;)V");
+                MethodNode click = findMethod(cn, "a", "(L" + screens.button + ";)V");
                 if (init == null || click == null) {
                     return false;
                 }
@@ -800,7 +976,7 @@ public class ClientPatcher {
         });
         // In-game HUD: draw the chat lines right after the "Minecraft Infdev" label, where the HUD still has its 2D
         // drawing state (at the end of the method the state is already back to 3D and text is not visible)
-        t.custom("net/minecraft/client/c/l", new HookTransformer.Custom() {
+        t.custom(screens.hud, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode m = findMethod(cn, "a", "(F)V");
                 if (m == null) {
@@ -923,7 +1099,7 @@ public class ClientPatcher {
             System.out.println("TheWello's Infdev Client Patcher");
             System.out.println("Usage: java -jar TheWellosInfdevClientPatcher.jar <inf-...jar> <output.jar | folder>");
             System.out.println("With a folder the output is named <build>-mp.jar (for example inf-20100316-mp.jar).");
-            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640 (detected from the jar)");
+            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953 (detected from the jar)");
             System.exit(1);
         }
         boolean publicizeOnly = args.length > 2 && args[2].equals("--publicize-only");
@@ -950,6 +1126,14 @@ public class ClientPatcher {
         net.thewellodev.protocol.GameVersion version;
         if (jar.getEntry("kb.class") != null && jar.getEntry("fe.class") != null && jar.getEntry("aw.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100630_1340;
+        } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/c/f.class") != null
+                && jar.getEntry("net/minecraft/a/a/h.class") != null && jar.getEntry("net/minecraft/client/p.class") != null) {
+            version = net.thewellodev.protocol.GameVersion.INF_20100413_1953;
+        } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/a/f.class") != null
+                && jar.getEntry("net/minecraft/a/a/c/a.class") != null && jar.getEntry("net/minecraft/client/p.class") != null) {
+            // 20100327 and 20100330-1611 have the same class names: the chunk class of the later one knows the tag TerrainPopulated
+            version = classHasText(jar, "net/minecraft/a/a/e/d.class", "TerrainPopulated")
+                    ? net.thewellodev.protocol.GameVersion.INF_20100330_1611 : net.thewellodev.protocol.GameVersion.INF_20100327;
         } else if (jar.getEntry("net/minecraft/a/a/g.class") != null && jar.getEntry("net/minecraft/a/a/c/x.class") != null
                 && jar.getEntry("net/minecraft/a/a/a/b.class") != null && jar.getEntry("net/minecraft/client/q.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100325_1640;
@@ -968,9 +1152,18 @@ public class ClientPatcher {
         } else if (jar.getEntry("net/minecraft/a/a/e.class") != null && jar.getEntry("net/minecraft/client/d.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100227_1433;
         } else {
-            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321 or inf-20100325-1640 client jar: " + in);
+            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611 or inf-20100413-1953 client jar: " + in);
         }
         return version;
+    }
+
+    private static boolean classHasText(JarFile jar, String entry, String text) throws IOException {
+        JarEntry e = jar.getJarEntry(entry);
+        if (e == null) {
+            return false;
+        }
+        byte[] data = readAll(jar.getInputStream(e));
+        return new String(data, "ISO-8859-1").contains(text);
     }
 
     public static void patch(File in, File out, boolean publicizeOnly) throws IOException {
@@ -1008,9 +1201,12 @@ public class ClientPatcher {
         boolean is320 = version == net.thewellodev.protocol.GameVersion.INF_20100320;
         boolean is321 = version == net.thewellodev.protocol.GameVersion.INF_20100321;
         boolean is325 = version == net.thewellodev.protocol.GameVersion.INF_20100325_1640;
-        String modDir = is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
+        boolean is327 = version == net.thewellodev.protocol.GameVersion.INF_20100327;
+        boolean is330 = version == net.thewellodev.protocol.GameVersion.INF_20100330_1611;
+        boolean is413 = version == net.thewellodev.protocol.GameVersion.INF_20100413_1953;
+        String modDir = is413 ? "/mod413/" : is330 ? "/mod330/" : is327 ? "/mod327/" : is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
         HookTransformer t = publicizeOnly ? new HookTransformer()
-                : (is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
+                : (is413 ? createTransformer413() : is330 ? createTransformer330() : is327 ? createTransformer327() : is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
         Manifest mf = new Manifest();
         mf.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         if (!publicizeOnly) {

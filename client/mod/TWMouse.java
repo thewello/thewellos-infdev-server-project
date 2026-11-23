@@ -48,6 +48,13 @@ public final class TWMouse {
      * the focus comes back while a menu is open the mouse stays free (the game grabs it when the menu closes).
      */
     public static void guard(boolean canGrab) {
+        if (Boolean.getBoolean("thewellodev.nograb")) {
+            // test aid: the window never grabs the mouse (a test window must not take the mouse from the person at the computer)
+            if (org.lwjgl.input.Mouse.isGrabbed()) {
+                org.lwjgl.input.Mouse.setGrabbed(false);
+            }
+            return;
+        }
         if (!active()) {
             if (org.lwjgl.input.Mouse.isGrabbed()) {
                 org.lwjgl.input.Mouse.setGrabbed(false);

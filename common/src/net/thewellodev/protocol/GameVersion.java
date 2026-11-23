@@ -81,8 +81,40 @@ public final class GameVersion {
             "1942c49c85167375182b4d181e71f2a199f223ae8f442332c4dbfaa5596c20a0", true, "TWBridge325",
             "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
 
+    /**
+     * The build after 20100325-1640 (the build 20100325-1545 and others between are not supported): the game saves its worlds
+     * again, in the Alpha level format (a level.dat and chunk files in folders named by base 36 numbers), and has a new
+     * terrain generator (no caves yet), sea level 64, the world's block coordinates are signed, furnaces smelt in 4 seconds.
+     */
+    public static final GameVersion INF_20100327 = new GameVersion(
+            "inf-20100327", "Infdev inf-20100327", 17,
+            "c696d187821b9034046e4572dfdb579a60b80530ff02598aadb6322e8ad8b247", true, "TWBridge327",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    /**
+     * The build after 20100327 (20100330-1203, which lies between them, has no known copy): chunk files carry the tag
+     * TerrainPopulated (a chunk that was populated is never populated again), furnaces smelt in 8 seconds again, containers
+     * save reliably, the light of slabs and of the top of the world is right, broken blocks do not keep their data value and the
+     * clouds no longer follow the player. The world is in the same Alpha level format as 20100327.
+     */
+    public static final GameVersion INF_20100330_1611 = new GameVersion(
+            "inf-20100330-1611", "Infdev inf-20100330-1611", 18,
+            "3beb70d42f81f717f04a8c47b847854eda4aabe5b5a23d62e6b9ef86a8aec64d", true, "TWBridge330",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    /**
+     * The build after 20100330-1611 (20100413-1951, which lies between them, has no known copy): the world class moved to a/a/g and the
+     * entity classes changed (the living entity is a/c/f, every entity field name moved by one letter), chunks hold entities,
+     * the terrain has beaches, erosion and big trees, leaves no longer decay, arrows no longer make mobs and the light queue is
+     * worked off by one call. The world is in the same Alpha level format as 20100327.
+     */
+    public static final GameVersion INF_20100413_1953 = new GameVersion(
+            "inf-20100413-1953", "Infdev inf-20100413-1953", 19,
+            "6b9513e811a83cbf81ac57bc0c8d01a02fa3f0a88a284afe08a5145961002679", true, "TWBridge413",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
     private static final GameVersion[] ALL = {INF_20100630_1340, INF_20100227_1433, INF_20100313, INF_20100316,
-            INF_20100320, INF_20100321, INF_20100325_1640};
+            INF_20100320, INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953};
 
     /**
      * The builds a world can be converted along, from the oldest to the newest: from each one to the next.
@@ -90,7 +122,7 @@ public final class GameVersion {
      */
     public static GameVersion[] chronological() {
         return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316, INF_20100320,
-                INF_20100321, INF_20100325_1640};
+                INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953};
     }
 
     public final String id;

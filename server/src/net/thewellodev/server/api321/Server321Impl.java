@@ -74,6 +74,14 @@ public final class Server321Impl implements Server321 {
         return server.getPort();
     }
 
+    public int getViewDistance() {
+        return server.getViewDistance();
+    }
+
+    public int getSpawnRadius() {
+        return server.getSpawnProtection();
+    }
+
     public String getMotd() {
         return server.getMotd();
     }

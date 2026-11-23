@@ -32,7 +32,7 @@ public class TWLauncher implements AppletStub {
 
     public static void main(String[] args) throws Exception {
         String name = args.length > 0 ? args[0] : "Player" + (System.currentTimeMillis() % 1000);
-        int w = 854, h = 480, px = -1, py = -1;
+        int w = 854, h = 480, px = Integer.MIN_VALUE, py = Integer.MIN_VALUE; // a position can be negative (a monitor left of the main one)
         for (int i = 1; i + 1 < args.length; i += 2) {
             if (args[i].equals("--x")) {
                 px = Integer.parseInt(args[i + 1]);
@@ -54,7 +54,7 @@ public class TWLauncher implements AppletStub {
         frame.add(applet, BorderLayout.CENTER);
         frame.pack();
         frame.setLocationRelativeTo(null);
-        if (px >= 0 && py >= 0) {
+        if (px != Integer.MIN_VALUE && py != Integer.MIN_VALUE) {
             frame.setLocation(px, py);
         }
         frame.addWindowListener(new WindowAdapter() {

@@ -20,4 +20,9 @@ public class PlayerRespawnEvent extends PlayerEvent {
     public void setRespawnLocation(Location313 location) {
         this.respawnLocation = location;
     }
+
+    /** Always false: these builds have no beds. */
+    public boolean isBedSpawn() {
+        return false;
+    }
 }

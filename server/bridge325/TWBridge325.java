@@ -341,8 +341,19 @@ public class TWBridge325 implements GameBridge {
      * Called once per server tick with the block positions of the players: the world keeps no entities or scheduled
      * updates here, so the only work is to drop far chunks when many are in memory.
      */
+    private final TWTick.Host sandHost = new TWTick.Host() {
+        public int block(int x, int y, int z) {
+            return getBlockId(x, y, z);
+        }
+
+        public void set(int x, int y, int z, int id) {
+            setBlock(x, y, z, id, 0, true);
+        }
+    };
+
     public void tick(int[] playerBlockPositions) {
         drainLight(300);
+        TWTick.sandTick(sandHost); // sand and gravel fall by cells
         blockTicks();
         if (playerBlockPositions != null) {
             lastPlayers = playerBlockPositions.clone();

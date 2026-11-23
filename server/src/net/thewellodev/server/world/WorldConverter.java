@@ -43,6 +43,17 @@ import java.util.logging.Logger;
  * <li>inf-20100321 -> inf-20100325-1640 (also 320, 316, 313 and 227): the same chunk files. The generator of 325-1640 adds
  *     caves and ore blobs: the chunks that are taken over keep what they have, new land has the caves, so the edge of the
  *     converted part is visible.</li>
+ * <li>inf-20100325-1640 -> inf-20100327 (also 321, 320, 316, 313 and 227): the game now saves its worlds in the Alpha level
+ *     format, so the chunk files are not copied as they are: the bridge reads each chunk from the old folder (a flat folder of
+ *     c.X.Z.dat files with decimal numbers) and writes it in the new layout (folders named by X mod 64 and Z mod 64 in base 36,
+ *     file names with X and Z in base 36). A chunk that nobody visits is converted by /convertworld, a few in each tick, and is
+ *     dropped from memory again, so a world of any size can be converted. The chunks keep what they have.</li>
+ * <li>inf-20100327 -> inf-20100330-1611 (also every older build): the same Alpha layout and tags, so the chunk files of 327 are moved
+ *     over as the files they are; 330-1611 adds the tag TerrainPopulated, and a chunk without it counts as populated. The older
+ *     world's folder may have either layout ({@link #chunkFiles}).</li>
+ * <li>inf-20100330-1611 -> inf-20100413-1953 (also every older build): the same Alpha layout and tags, so the chunk files of 330-1611 are
+ *     moved over as the files they are, as from 327 into 330-1611.</li>
+ * <li>When every chunk of the older world is in the new world, the older world is deleted ({@code delete-old-world}).</li>
  * </ul>
  * A new build is added with one more case in {@link #supportsStep}, and the bridge of the build converts the chunk it
  * reads from the old folder. What cannot be carried over: the terrain generators of the builds differ, so land
@@ -112,18 +123,26 @@ public final class WorldConverter {
             return; // the older world is gone: nothing more can be taken over
         }
         completeAncestors(worldsDir, from, level, log, depth + 1);
-        File[] files = from.listFiles();
         int copied = 0;
-        if (files != null) {
-            for (File f : files) {
-                String n = f.getName();
-                if (f.isFile() && n.startsWith("c.") && n.endsWith(".dat")) {
-                    File mine = new File(dir, n);
-                    if (!mine.exists()) {
-                        copyFile(f, mine);
-                        copied++;
-                    }
+        // the world in dir may be in the Alpha layout (327 and later); the chunk files of the older world are in either layout
+        boolean alpha = false;
+        for (GameVersion v : GameVersion.chronological()) {
+            if (v.id.equals(dir.getParentFile().getName())) {
+                alpha = usesAlphaLayout(v);
+            }
+        }
+        for (File f : chunkFiles(from)) {
+            int[] xz = chunkCoords(from, f);
+            if (xz == null) {
+                continue;
+            }
+            File mine = alpha ? alphaFile(dir, xz[0], xz[1]) : new File(dir, f.getName());
+            if (!mine.exists()) {
+                if (!mine.getParentFile().isDirectory() && !mine.getParentFile().mkdirs()) {
+                    throw new IOException("Could not create " + mine.getParentFile());
                 }
+                copyFile(f, mine);
+                copied++;
             }
         }
         markComplete(dir);
@@ -151,6 +170,24 @@ public final class WorldConverter {
 
     /** Whether a chunk of the older build can be used by the newer one. */
     public static boolean supportsStep(GameVersion from, GameVersion to) {
+        if (to == GameVersion.INF_20100413_1953) {
+            // 330-1611 -> 413-1953: the same Alpha layout and tags; every older build as into 330-1611
+            return from == GameVersion.INF_20100330_1611 || supportsStep(from, GameVersion.INF_20100330_1611);
+        }
+        if (to == GameVersion.INF_20100330_1611) {
+            // 327 -> 330-1611: the same Alpha layout and tags (330 adds TerrainPopulated; a chunk without it counts as populated
+            // for the server); every older build as into 327
+            return from == GameVersion.INF_20100327 || supportsStep(from, GameVersion.INF_20100327);
+        }
+        if (to == GameVersion.INF_20100327) {
+            // 325-1640 (and 321, 320, 316, 313, 227) -> 327: the chunks have the same tags and block numbers; the files change
+            // their layout (the Alpha level format, see TWBridge327), and so the bridge writes each chunk it takes over in the
+            // new layout. The terrain generator of 327 is new (new noise, no caves, sea level 64): the chunks that are taken
+            // over keep what they have, new land is made with the new generator.
+            return from == GameVersion.INF_20100325_1640 || from == GameVersion.INF_20100321
+                    || from == GameVersion.INF_20100320 || from == GameVersion.INF_20100316
+                    || from == GameVersion.INF_20100313 || from == GameVersion.INF_20100227_1433;
+        }
         if (to == GameVersion.INF_20100325_1640) {
             // 321 (and 320, 316, 313, 227) -> 325-1640: the same chunk files. The generator of 325 makes caves and ore blobs, so
             // land made after the takeover differs from the converted land at its edges; the chunks that are taken over
@@ -178,6 +215,148 @@ public final class WorldConverter {
             return from == GameVersion.INF_20100313 || from == GameVersion.INF_20100227_1433;
         }
         return from == GameVersion.INF_20100227_1433 && to == GameVersion.INF_20100313;
+    }
+
+    /**
+     * Whether every chunk file of the older world has its counterpart in the new world's folder (a chunk that is only in memory
+     * does not count: it is not on the disk yet).
+     */
+    public static boolean isComplete(File oldDir, File newDir, GameVersion target) {
+        File[] files = oldDir.listFiles();
+        if (files == null) {
+            return false;
+        }
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.dat");
+        for (File f : files) {
+            java.util.regex.Matcher m = p.matcher(f.getName());
+            if (!f.isFile() || !m.matches()) {
+                continue;
+            }
+            File mine;
+            int x = Integer.parseInt(m.group(1)), z = Integer.parseInt(m.group(2));
+            if (usesAlphaLayout(target)) {
+                mine = alphaFile(newDir, x, z);
+            } else {
+                mine = new File(newDir, f.getName());
+            }
+            if (!mine.isFile()) {
+                return false;
+            }
+        }
+        // chunk files of an older world that is in the Alpha layout itself (327 into 330-1611)
+        for (File chunk : alphaChunkFiles(oldDir)) {
+            int[] xz = alphaCoords(chunk);
+            if (xz != null && !alphaFile(newDir, xz[0], xz[1]).isFile()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Builds whose worlds are in the Alpha level format (327 and later). */
+    public static boolean usesAlphaLayout(GameVersion v) {
+        return v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611 || v == GameVersion.INF_20100413_1953;
+    }
+
+    /** The chunk file of the Alpha layout: X mod 64 and Z mod 64 are folders, the name has X and Z in base 36. */
+    public static File alphaFile(File worldDir, int x, int z) {
+        return new File(new File(new File(worldDir, Integer.toString(x & 63, 36)), Integer.toString(z & 63, 36)),
+                "c." + Integer.toString(x, 36) + "." + Integer.toString(z, 36) + ".dat");
+    }
+
+    /** All chunk files that lie in the folders of the Alpha layout (two levels deep). */
+    public static java.util.List<File> alphaChunkFiles(File worldDir) {
+        java.util.List<File> out = new java.util.ArrayList<File>();
+        File[] first = worldDir.listFiles();
+        if (first == null) {
+            return out;
+        }
+        for (File a : first) {
+            File[] second = a.isDirectory() ? a.listFiles() : null;
+            if (second == null) {
+                continue;
+            }
+            for (File b : second) {
+                File[] files = b.isDirectory() ? b.listFiles() : null;
+                if (files == null) {
+                    continue;
+                }
+                for (File f : files) {
+                    if (f.isFile() && alphaCoords(f) != null) {
+                        out.add(f);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /** X and Z of a chunk file of the Alpha layout (names like c.-1.1r.dat, in base 36), or null. */
+    public static int[] alphaCoords(File f) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("c\\.(-?[0-9a-z]+)\\.(-?[0-9a-z]+)\\.dat").matcher(f.getName());
+        if (!m.matches()) {
+            return null;
+        }
+        try {
+            return new int[]{Integer.parseInt(m.group(1), 36), Integer.parseInt(m.group(2), 36)};
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Every chunk file of an older world, whichever layout it has: the flat folder of the builds before 327 (c.X.Z.dat with
+     * decimal numbers) or the Alpha layout.
+     */
+    public static java.util.List<File> chunkFiles(File worldDir) {
+        java.util.List<File> out = new java.util.ArrayList<File>();
+        java.util.regex.Pattern flat = java.util.regex.Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.dat");
+        File[] files = worldDir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile() && flat.matcher(f.getName()).matches()) {
+                    out.add(f);
+                }
+            }
+        }
+        out.addAll(alphaChunkFiles(worldDir));
+        return out;
+    }
+
+    /** X and Z of a chunk file found by {@link #chunkFiles}: a file that lies in the world folder itself has decimal numbers. */
+    public static int[] chunkCoords(File worldDir, File f) {
+        if (f.getParentFile() != null && f.getParentFile().equals(worldDir)) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.dat").matcher(f.getName());
+            return m.matches() ? new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2))} : null;
+        }
+        return alphaCoords(f);
+    }
+
+    /** The chunk file of an older world for a chunk, in either layout; null when there is none. */
+    public static File findChunkFile(File worldDir, int x, int z) {
+        File flat = new File(worldDir, "c." + x + "." + z + ".dat");
+        if (flat.isFile()) {
+            return flat;
+        }
+        File alpha = alphaFile(worldDir, x, z);
+        return alpha.isFile() ? alpha : null;
+    }
+
+    /** Deletes a folder with everything in it. */
+    public static void deleteTree(File dir) throws IOException {
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    deleteTree(f);
+                } else if (!f.delete()) {
+                    throw new IOException("Could not delete " + f);
+                }
+            }
+        }
+        if (!dir.delete()) {
+            throw new IOException("Could not delete " + dir);
+        }
     }
 
     /** The id of the build a world was taken over from, or null. */

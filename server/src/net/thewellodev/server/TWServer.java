@@ -77,7 +77,7 @@ import java.util.logging.Logger;
 public class TWServer implements Server {
 
     public static final String NAME = "TheWello's Infdev Server";
-    public static final String VERSION = "2.2.0";
+    public static final String VERSION = "2.3.0";
 
     private final Logger logger;
     private final File dir;
@@ -142,6 +142,8 @@ public class TWServer implements Server {
     private final Map<Integer, net.thewellodev.server.game.NetEntity> mobs = new java.util.HashMap<Integer, net.thewellodev.server.game.NetEntity>();
     private int spawnProtection;
     private int autosaveTicks;
+    /** The folder of the older world that this world is still taking chunks from, or null. */
+    private File takeoverSource;
     private String levelName;
     /** The build this server runs (game-version in server.properties). */
     private GameVersion gameVersion;
@@ -237,11 +239,14 @@ public class TWServer implements Server {
         mainThread = Thread.currentThread();
         startFreezeWatch();
         worldRoot = prepareWorldRoot();
-        // a world of an older build is taken over: its chunks are converted when first needed (the old world stays as it is)
-        bridge.setLegacyWorld(net.thewellodev.server.world.WorldConverter.prepare(new File(dir, "worlds"), levelName,
-                gameVersion, logger));
+        // a world of an older build is taken over: its chunks are converted when first needed (the old world stays as it is
+        // until every chunk is converted: then it is deleted, see finishTakeover)
+        takeoverSource = net.thewellodev.server.world.WorldConverter.prepare(new File(dir, "worlds"), levelName,
+                gameVersion, logger);
+        bridge.setLegacyWorld(takeoverSource);
         bridge.setUpgradeOldChunks(config.getBoolean("upgrade-old-terrain", false));
         bridge.load(worldRoot, levelName, seed);
+        finishTakeover(null, 0); // a takeover that was finished in an earlier run
         gcl.verifyHooks();
         bridge.setMobSettings(difficulty, spawnMonsters, spawnAnimals);
         bridge.setMobCaps(mobCapMonsters, mobCapAnimals);
@@ -286,7 +291,8 @@ public class TWServer implements Server {
         logger.info("Preparing spawn area...");
         long t0 = System.currentTimeMillis();
         // the terrain of the newest build is slow to make (caves): a smaller area is made before the server opens
-        int r = Math.min(viewDistance, gameVersion == GameVersion.INF_20100325_1640 ? 3 : 4);
+        int r = Math.min(viewDistance, gameVersion == GameVersion.INF_20100325_1640 || gameVersion == GameVersion.INF_20100327
+                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 ? 3 : 4);
         int total = (2 * r + 1) * (2 * r + 1), done = 0, shown = 0;
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
@@ -314,6 +320,24 @@ public class TWServer implements Server {
             net.thewellodev.server.api313.Server313Impl view = new net.thewellodev.server.api313.Server313Impl(this);
             net.thewellodev.api313.TheWello313.setServer(view);
             pluginManager.setTranslator(new net.thewellodev.server.api313.Events313(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100413_1953) {
+            // this build has its own plugin API too (net.thewellodev.api413)
+            net.thewellodev.server.api413.Server413Impl view = new net.thewellodev.server.api413.Server413Impl(this);
+            net.thewellodev.api413.TheWello413.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api413.Events413(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100330_1611) {
+            // this build has its own plugin API too (net.thewellodev.api330)
+            net.thewellodev.server.api330.Server330Impl view = new net.thewellodev.server.api330.Server330Impl(this);
+            net.thewellodev.api330.TheWello330.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api330.Events330(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100327) {
+            // this build has its own plugin API too (net.thewellodev.api327)
+            net.thewellodev.server.api327.Server327Impl view = new net.thewellodev.server.api327.Server327Impl(this);
+            net.thewellodev.api327.TheWello327.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api327.Events327(pluginManager, view.api()));
         }
         if (gameVersion == GameVersion.INF_20100325_1640) {
             // this build has its own plugin API too (net.thewellodev.api325)
@@ -641,7 +665,8 @@ public class TWServer implements Server {
         particleBudget = 0;
         // 0) Tasks queued from other threads
         Runnable task;
-        while ((task = mainTasks.poll()) != null) {
+        // only the tasks that are queued now: a task that queues itself again (the world conversion) runs next tick
+        for (int left = mainTasks.size(); left > 0 && (task = mainTasks.poll()) != null; left--) {
             try {
                 task.run();
             } catch (RuntimeException e) {
@@ -718,7 +743,7 @@ public class TWServer implements Server {
         }
         if (sharesDrops()) {
             if (tickCount % 40 == 0) {
-                showServerDrops();
+                showDrops();
             }
             if (tickCount % 1200 == 0 && players.size() > 1) {
                 for (TWPlayer q : players.values()) {
@@ -782,6 +807,7 @@ public class TWServer implements Server {
         if (tickCount % autosaveTicks == 0) {
             logger.info("Auto-saving...");
             saveAll();
+            finishTakeover(null, 0);
         }
     }
 
@@ -1361,15 +1387,35 @@ public class TWServer implements Server {
 
     /** The number that the items made by the server itself get: slot 2047 is the server's (no player gets it). */
     private int serverDropSeq = 1;
-    /** The items that the server made and that still lie about: number, then x, y, z, motion, type, count, damage, tick. */
-    private final java.util.Map<Integer, double[]> serverDrops = new java.util.LinkedHashMap<Integer, double[]>();
+    /**
+     * Every shared item that still lies about (the items of the players' games and the items that the server made): number, then
+     * x, y, z, motion, type, count, damage and the tick it was first seen. A player who comes near an item that he has not seen
+     * gets it (showDrops), so an item is not lost for the players who were far away or who joined later.
+     */
+    private final java.util.Map<Integer, double[]> liveDrops = new java.util.LinkedHashMap<Integer, double[]>();
 
     /**
      * Shows the items of the server to the players who have not seen them (they joined after the item was made, or walked into
      * its range), and forgets the items that are older than the game keeps them.
      */
-    private void showServerDrops() {
-        for (java.util.Iterator<java.util.Map.Entry<Integer, double[]>> it = serverDrops.entrySet().iterator(); it.hasNext();) {
+    /** The numbers of the items that were taken or are gone: an item that a game announces again (every minute) is not shown again. */
+    private final java.util.Map<Integer, Boolean> goneDrops = new java.util.LinkedHashMap<Integer, Boolean>() {
+        protected boolean removeEldestEntry(java.util.Map.Entry<Integer, Boolean> eldest) {
+            return size() > 20000;
+        }
+    };
+
+    /** An item is taken or gone: nobody shows it any more. */
+    private void forgetSharedDrop(int number) {
+        liveDrops.remove(number);
+        goneDrops.put(number, Boolean.TRUE);
+        for (TWPlayer q : players.values()) {
+            q.seenDrops.remove(number);
+        }
+    }
+
+    private void showDrops() {
+        for (java.util.Iterator<java.util.Map.Entry<Integer, double[]>> it = liveDrops.entrySet().iterator(); it.hasNext();) {
             java.util.Map.Entry<Integer, double[]> en = it.next();
             double[] d = en.getValue();
             if (tickCount - (long) d[9] > ITEM_LIFETIME_TICKS) {
@@ -1377,11 +1423,11 @@ public class TWServer implements Server {
                 continue;
             }
             for (TWPlayer q : players.values()) {
-                if (q.joined && q.getConnection() != null && !q.seenServerDrops.contains(en.getKey())
+                if (q.joined && q.getConnection() != null && !q.seenDrops.contains(en.getKey())
                         && near(q, d[0], d[1], d[2], 128)) {
                     q.getConnection().sendDropSpawn(en.getKey(), (int) d[6], (int) d[7], (int) d[8],
                             new double[]{d[0], d[1], d[2], 0, 0, 0});
-                    q.seenServerDrops.add(en.getKey());
+                    q.seenDrops.add(en.getKey());
                 }
             }
         }
@@ -1396,16 +1442,17 @@ public class TWServer implements Server {
         int number = (2047 << 20) | serverDropSeq;
         serverDropSeq = serverDropSeq >= 0xFFFFF ? 1 : serverDropSeq + 1;
         dropClaims.remove(number);
+        goneDrops.remove(number);
         if (dropInfo.size() >= 2000) {
             dropInfo.remove(dropInfo.keySet().iterator().next());
         }
         dropInfo.put(number, new int[]{type, count, data});
         double[] v = {x, y, z, mx, my, mz};
-        serverDrops.put(number, new double[]{x, y, z, mx, my, mz, type, count, data, tickCount});
+        liveDrops.put(number, new double[]{x, y, z, mx, my, mz, type, count, data, tickCount});
         for (TWPlayer q : players.values()) {
             if (q.joined && q.getConnection() != null && near(q, x, y, z, 160)) {
                 q.getConnection().sendDropSpawn(number, type, count, data, v);
-                q.seenServerDrops.add(number);
+                q.seenDrops.add(number);
             }
         }
         return number;
@@ -2165,7 +2212,9 @@ public class TWServer implements Server {
     /** Builds whose clients run their own item entities and pass them on through the server. */
     private boolean sharesDrops() {
         return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
-                || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640;
+                || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640
+                || gameVersion == GameVersion.INF_20100327 || gameVersion == GameVersion.INF_20100330_1611
+                || gameVersion == GameVersion.INF_20100413_1953;
     }
 
     /** Who picked up which shared item (number to slot): the first one asked gets it. */
@@ -2194,13 +2243,21 @@ public class TWServer implements Server {
      * Builds 316 and 320: the game of each player runs its own items (blocks drop, items can be thrown). The server passes
      * them on, so that every player sees the items of the others.
      */
+    private static final boolean DROP_DEBUG = Boolean.getBoolean("thewellodev.dropdebug");
+
     private void handleDropSpawn(TWPlayer p, PlayerConnection.InPacket in) {
+        if (DROP_DEBUG) {
+            logger.info("[drops] spawn #" + in.i1 + " item " + in.i2 + "x" + in.i3 + " from " + p.getName());
+        }
         if (p.gameMode == 2 || !sharesDrops() || !p.allow("dropspawn", 120) || !validNumber(p, in.i1) || in.i2 <= 0 || in.i2 > 2000
                 || !bridge.isValidItem(in.i2) || in.i3 <= 0 || in.i3 > 999 || !isFinite(in.x) || !isFinite(in.y)
                 || !isFinite(in.z) || !isFinite(in.mx) || !isFinite(in.my) || !isFinite(in.mz)
                 || !near(p, in.x, in.y, in.z, 128) || Math.abs(in.mx) > 10 || Math.abs(in.my) > 10
                 || Math.abs(in.mz) > 10) {
             return;
+        }
+        if (goneDrops.containsKey(in.i1) || dropClaims.containsKey(in.i1)) {
+            return; // taken already: an announcement that arrives late (or again) must not bring the item back
         }
         if (!dropInfo.containsKey(in.i1) && pluginManager.callEvent(new net.thewellodev.server.event.SharedItemSpawnEvent(p,
                 in.i1, in.i2, in.i3, in.i4, in.x, in.y, in.z)).isCancelled()) {
@@ -2210,16 +2267,27 @@ public class TWServer implements Server {
             dropInfo.remove(dropInfo.keySet().iterator().next());
         }
         dropInfo.put(in.i1, new int[]{in.i2, in.i3, in.i4});
+        double[] old = liveDrops.get(in.i1);
+        long first = old != null ? (long) old[9] : tickCount;
+        if (old == null && liveDrops.size() >= 4000) {
+            liveDrops.remove(liveDrops.keySet().iterator().next());
+        }
+        liveDrops.put(in.i1, new double[]{in.x, in.y, in.z, in.mx, in.my, in.mz, in.i2, in.i3, in.i4, first});
+        p.seenDrops.add(in.i1); // its own game has it
         double[] v = {in.x, in.y, in.z, in.mx, in.my, in.mz};
         for (TWPlayer q : players.values()) {
-            if (q != p && near(q, in.x, in.y, in.z, 160)) {
+            if (q != p && q.joined && q.getConnection() != null && !q.seenDrops.contains(in.i1) && near(q, in.x, in.y, in.z, 160)) {
                 q.getConnection().sendDropSpawn(in.i1, in.i2, in.i3, in.i4, v);
+                q.seenDrops.add(in.i1);
             }
         }
     }
 
     /** An item is gone: the one who dropped it, or the one who got it, says so. */
     private void handleDropRemove(TWPlayer p, PlayerConnection.InPacket in) {
+        if (DROP_DEBUG) {
+            logger.info("[drops] remove #" + in.i1 + " from " + p.getName() + " (claimer " + dropClaims.get(in.i1) + ")");
+        }
         if (!sharesDrops() || !p.allow("dropremove", 120)) {
             return;
         }
@@ -2230,7 +2298,7 @@ public class TWServer implements Server {
         }
         dropClaims.remove(number);
         dropInfo.remove(number);
-        serverDrops.remove(number);
+        forgetSharedDrop(number);
         for (TWPlayer q : players.values()) {
             if (q != p) {
                 q.getConnection().sendDropRemove(number);
@@ -2243,6 +2311,9 @@ public class TWServer implements Server {
 
     /** The first player who asks for an item gets it; the others lose their copy at once. */
     private void handleDropClaim(TWPlayer p, int number) {
+        if (DROP_DEBUG) {
+            logger.info("[drops] claim #" + number + " by " + p.getName() + " (now " + dropClaims.get(number) + ")");
+        }
         if (!sharesDrops() || !p.allow("dropclaim", 60) || p.dropSlot < 0) {
             return;
         }
@@ -2251,6 +2322,10 @@ public class TWServer implements Server {
             return;
         }
         Integer cur = dropClaims.get(number);
+        if (cur == null && goneDrops.containsKey(number)) {
+            p.getConnection().sendDropClaimResult(number, false); // the item is gone: the game forgets its copy
+            return;
+        }
         boolean ok = cur == null || cur == p.dropSlot;
         int[] info = dropInfo.get(number);
         if (ok && cur == null && info != null && pluginManager.callEvent(new PlayerPickupItemEvent(p, number, info[0],
@@ -2260,7 +2335,7 @@ public class TWServer implements Server {
         }
         if (ok && cur == null) {
             dropInfo.remove(number);
-            serverDrops.remove(number);
+            forgetSharedDrop(number);
             dropClaims.put(number, p.dropSlot);
             for (TWPlayer q : players.values()) {
                 if (q != p) {
@@ -2277,7 +2352,9 @@ public class TWServer implements Server {
      */
     private void handleExplosion(TWPlayer p, float power, double x, double y, double z) {
         if (!(gameVersion == GameVersion.INF_20100320 || gameVersion == GameVersion.INF_20100321
-                || gameVersion == GameVersion.INF_20100325_1640) || !p.allow("explosion", 2) || p.dead
+                || gameVersion == GameVersion.INF_20100325_1640 || gameVersion == GameVersion.INF_20100327
+                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953)
+                || !p.allow("explosion", 2) || p.dead
                 || p.gameMode == 2 || !(power > 0f) || power > 8f || !isFinite(x) || !isFinite(y) || !isFinite(z)
                 || !near(p, x, y, z, 64)) {
             return;
@@ -2629,7 +2706,7 @@ public class TWServer implements Server {
     // ================================================================ chunks and visibility
 
     /** The time of one tick that may go to making chunks (the rest of the tick is the world, the packets and the plugins). */
-    private static final long CHUNK_TIME_BUDGET_NS = 20000000L;
+    private static final long CHUNK_TIME_BUDGET_NS = 28000000L;
     private long chunkBudgetEnd;
     private int chunkCooldown;
     private boolean skipChunks;
@@ -2683,7 +2760,9 @@ public class TWServer implements Server {
     /** The spectator mode (game mode 2) exists in the builds whose clients run the game's own entities (316 and later). */
     public boolean hasSpectatorMode() {
         return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
-                || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640;
+                || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640
+                || gameVersion == GameVersion.INF_20100327 || gameVersion == GameVersion.INF_20100330_1611
+                || gameVersion == GameVersion.INF_20100413_1953;
     }
 
     /** The game mode of a player changed: the spectator disappears from the others (and shows again). */
@@ -2827,20 +2906,60 @@ public class TWServer implements Server {
                     return;
                 }
                 convertingWorld = false;
-                File levelDir = new File(worldRoot, levelName);
-                String from = net.thewellodev.server.world.WorldConverter.origin(levelDir);
-                try {
-                    net.thewellodev.server.world.WorldConverter.markComplete(levelDir);
-                } catch (IOException ex) {
-                    logger.warning("Could not mark the world as converted: " + ex);
-                }
                 bridge.save(true);
-                logger.info("The world was converted: " + total[0] + " more chunks were taken over"
-                        + (from == null ? "." : " from " + from + ". worlds/" + from + "/" + levelName + " is not needed any more."));
-                sender.sendMessage("&aThe world is converted completely (" + total[0] + " more chunks"
-                        + (from == null ? "" : "; worlds/" + from + "/" + levelName + " can be deleted now") + ").");
+                finishTakeover(sender, total[0]);
             }
         });
+    }
+
+    /**
+     * When every chunk of the older world is in this world's folder (the chunks that players visited, and those of
+     * /convertworld), the takeover is over: the world is marked complete and, unless {@code delete-old-world=false}, the older
+     * world's folder is deleted (it is not read any more). Called after a save, and at the end of /convertworld.
+     */
+    private void finishTakeover(CommandSender sender, int converted) {
+        File old = takeoverSource;
+        if (old == null) {
+            return;
+        }
+        File levelDir = new File(worldRoot, levelName);
+        if (!net.thewellodev.server.world.WorldConverter.isComplete(old, levelDir, gameVersion)) {
+            if (sender != null) {
+                sender.sendMessage("&eThe world could not be converted completely: some chunks are not on the disk yet. "
+                        + "Run /convertworld again.");
+            }
+            return;
+        }
+        takeoverSource = null;
+        bridge.setLegacyWorld(null); // the older folder is not read any more
+        String from = net.thewellodev.server.world.WorldConverter.origin(levelDir);
+        try {
+            net.thewellodev.server.world.WorldConverter.markComplete(levelDir);
+        } catch (IOException ex) {
+            logger.warning("Could not mark the world as converted: " + ex);
+        }
+        String where = "worlds/" + (from == null ? old.getParentFile().getName() : from) + "/" + levelName;
+        String note;
+        if (config.getBoolean("delete-old-world", true)) {
+            try {
+                net.thewellodev.server.world.WorldConverter.deleteTree(old);
+                File parent = old.getParentFile();
+                String[] left = parent.list();
+                if (left != null && left.length == 0) {
+                    parent.delete();
+                }
+                note = "The old world " + where + " was deleted (it is not needed any more).";
+            } catch (IOException ex) {
+                note = "The old world " + where + " could not be deleted (" + ex.getMessage() + "); it is not needed any more.";
+            }
+        } else {
+            note = "The old world " + where + " is not needed any more and can be deleted (delete-old-world=false).";
+        }
+        logger.info("The world is converted completely" + (converted > 0 ? " (" + converted + " more chunks were taken over)" : "")
+                + ". " + note);
+        if (sender != null) {
+            sender.sendMessage("&aThe world is converted completely. " + note);
+        }
     }
 
     /** Runs a task on the main thread (can be called from any thread). */
@@ -2974,6 +3093,7 @@ public class TWServer implements Server {
             logger.info("Saving the world...");
             if (bridge != null) {
                 bridge.save(true);
+                finishTakeover(null, 0);
             }
         } catch (Throwable t) {
             logger.log(Level.SEVERE, "Could not save the world", t);
@@ -3426,6 +3546,14 @@ public class TWServer implements Server {
     public String getUptimeString() {
         long s = getUptimeMillis() / 1000;
         return String.format("%dsa %02ddk %02dsn", s / 3600, (s / 60) % 60, s % 60);
+    }
+
+    public int getSpawnRadius() {
+        return spawnProtection;
+    }
+
+    public int getSpawnProtection() {
+        return spawnProtection;
     }
 
     public int getViewDistance() {

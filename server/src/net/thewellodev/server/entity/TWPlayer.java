@@ -36,7 +36,7 @@ public class TWPlayer implements Player {
     public boolean onGround;
     public boolean joined;
     /** Builds 316 and later: the numbers of the server's own items that this player was told about. */
-    public final java.util.Set<Integer> seenServerDrops = new java.util.HashSet<Integer>();
+    public final java.util.Set<Integer> seenDrops = new java.util.HashSet<Integer>();
 
     /** Chunks sent to the client. */
     public final Set<Long> loadedChunks = new HashSet<Long>();

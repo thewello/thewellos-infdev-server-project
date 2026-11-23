@@ -1062,6 +1062,13 @@ public final class TW321Client {
                 }
             }
         }
+        if (gameMode != 0 && flying && !free) {
+            // an inventory window, a menu or the chat is open: the flying player hovers where it is (the keys are not read, so
+            // without this the gravity pulled it down) and slows down
+            motionY.setDouble(player, 0);
+            velX.setDouble(player, velX.getDouble(player) * 0.4);
+            velZ.setDouble(player, velZ.getDouble(player) * 0.4);
+        }
         boolean down = free && org.lwjgl.input.Mouse.isButtonDown(0);
         if (DEBUG && org.lwjgl.input.Mouse.isButtonDown(0) && !mouseWasDown) {
             System.out.println("[Infdev MP] click: free " + free + " grabbed " + org.lwjgl.input.Mouse.isGrabbed());
@@ -1339,9 +1346,27 @@ public final class TW321Client {
         if (!connected() || conn == null) {
             return false;
         }
+        try {
+            if (entDead.getBoolean(item)) {
+                // An item that was taken away (another player got it, or the server said so) lies in the world until the
+                // game's tick removes it: it must not be picked up in the meantime (that would give the item twice).
+                return true;
+            }
+        } catch (Exception ignored) {
+            // the check is only a safety net
+        }
         int[] v = dropTracked.get(item);
         if (v == null) {
             return false; // not shared (it was there before the login)
+        }
+        try {
+            if (itemDelay.getInt(item) > 0) {
+                // The game does not pick the item up yet (it was just thrown or dropped): asking now would take the item away
+                // from the other players while nobody can get it, and a granted answer would be used up for nothing.
+                return true;
+            }
+        } catch (Exception ignored) {
+            // without the delay field the claim is asked at once, as before
         }
         if (claimGranted.remove(item)) {
             return false; // the server said yes: the game picks it up now
@@ -1485,6 +1510,8 @@ public final class TW321Client {
     }
 
     private static Field stackOfItem;
+    /** The item entity's pickup delay in ticks (the game picks the item up when it is 0). */
+    private static Field itemDelay;
 
     // ----- chests and furnaces (shared between the players) ----------------------------------------------------
 
@@ -3046,6 +3073,7 @@ public final class TW321Client {
         itemEntityC = Class.forName("net.minecraft.a.c.c.b", true, cl);
         itemEntityCtor = itemEntityC.getConstructor(worldC, double.class, double.class, double.class, stackC);
         stackOfItem = itemEntityC.getField("a");
+        itemDelay = itemEntityC.getField("N");
         worldAddEntity = worldC.getMethod("a", playerC);
         entDead = playerC.getField("t");
         entMotX = playerC.getField("j");

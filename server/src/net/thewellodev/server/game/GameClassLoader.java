@@ -62,6 +62,14 @@ public class GameClassLoader extends ClassLoader {
             return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.a.b", "net.minecraft.a.a.a.b.a",
                     "net.minecraft.a.a.a.b.c"};
         }
+        if (v == GameVersion.INF_20100413_1953) {
+            // the world, the noise and the big tree make a Random of their own
+            return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.c.a.a", "net.minecraft.a.a.c.b.c"};
+        }
+        if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
+            // the generator itself takes its seed as an argument; these two make a Random of their own
+            return new String[]{"net.minecraft.a.a.f", "net.minecraft.a.a.c.a.a"};
+        }
         return new String[]{"net.minecraft.a.a.e", "net.minecraft.a.a.f", "net.minecraft.a.a.c.a.a",
                 "net.minecraft.a.a.c.a.c"};
     }
@@ -69,7 +77,20 @@ public class GameClassLoader extends ClassLoader {
     private static HookTransformer seedHooks(GameVersion v) {
         HookTransformer t = new HookTransformer();
         if (v == GameVersion.INF_20100325_1640) {
-            addTickHooks(t);
+            addSandHook(t, "net/minecraft/a/a/c/w", "net/minecraft/a/a/g");
+        } else if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
+            addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/f");
+        } else if (v == GameVersion.INF_20100413_1953) {
+            addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/g");
+        }
+        if (v == GameVersion.INF_20100325_1640) {
+            addTickHooks(t, "net/minecraft/a/a/g", "f", false);
+        }
+        if (v == GameVersion.INF_20100413_1953) {
+            addTickHooks(t, "net/minecraft/a/a/g", "i", true);
+        }
+        if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
+            addTickHooks(t, "net/minecraft/a/a/f", "h", true);
         }
         for (final String c : seededClasses(v)) {
             t.custom(c.replace('.', '/'), new HookTransformer.Custom() {
@@ -109,18 +130,55 @@ public class GameClassLoader extends ClassLoader {
         return t;
     }
 
+    /** Sand and gravel: the private fall method (it moves the block to the lowest free cell at once) is handed to TWTick. */
+    private static void addSandHook(HookTransformer t, String sandBlock, String world) {
+        final String desc = "(L" + world + ";III)V";
+        t.custom(sandBlock, new HookTransformer.Custom() {
+            public boolean apply(org.objectweb.asm.tree.ClassNode cn) {
+                for (org.objectweb.asm.tree.MethodNode m : cn.methods) {
+                    if (m.name.equals("e") && m.desc.equals(desc)) {
+                        org.objectweb.asm.tree.LabelNode cont = new org.objectweb.asm.tree.LabelNode();
+                        org.objectweb.asm.tree.InsnList il = new org.objectweb.asm.tree.InsnList();
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ALOAD, 1));
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ILOAD, 2));
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ILOAD, 3));
+                        il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ILOAD, 4));
+                        il.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESTATIC, "TWTick",
+                                "sand", "(Ljava/lang/Object;III)Z", false));
+                        il.add(new org.objectweb.asm.tree.JumpInsnNode(org.objectweb.asm.Opcodes.IFEQ, cont));
+                        il.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.RETURN));
+                        il.add(cont);
+                        m.instructions.insert(il);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+    }
+
     /**
      * Builds from inf-20100325-1640 on: the world class ticks blocks. The sweep of random block ticks around the player
      * (a loop of 32000 tries in the world's tick method) is cut out, because the bridge does it over the loaded chunks;
      * the methods that set a block and the method that adds an entity report to TWTick (see there).
      */
-    private static void addTickHooks(HookTransformer t) {
-        final String world = "net/minecraft/a/a/g";
+    private static void addTickHooks(HookTransformer t, String world, final String tickName, final boolean noSave) {
         t.custom(world, new HookTransformer.Custom() {
             public boolean apply(org.objectweb.asm.tree.ClassNode cn) {
                 boolean done = false;
                 for (org.objectweb.asm.tree.MethodNode m : cn.methods) {
-                    if (m.name.equals("f") && m.desc.equals("()V")) {
+                    if (noSave && m.name.equals("a") && m.desc.equals("(Z)V")) {
+                        // The world of this build saves itself (level.dat and its chunks, every 200 ticks and when it is made).
+                        // The bridge keeps and writes the world on its own: the method does nothing. The body is replaced as
+                        // a whole, so that no dead code is left (the old verifier of these class files rejects that).
+                        m.instructions.clear();
+                        m.tryCatchBlocks.clear();
+                        if (m.localVariables != null) {
+                            m.localVariables.clear();
+                        }
+                        m.instructions.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.RETURN));
+                        done = true;
+                    } else if (m.name.equals(tickName) && m.desc.equals("()V")) {
                         for (org.objectweb.asm.tree.AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
                             if (n.getOpcode() == org.objectweb.asm.Opcodes.SIPUSH
                                     && ((org.objectweb.asm.tree.IntInsnNode) n).operand == 32000) {
@@ -163,6 +221,9 @@ public class GameClassLoader extends ClassLoader {
         }
         if (v == GameVersion.INF_20100313) {
             return "net/minecraft/a/a/f.class";
+        }
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
+            return "com/a/a/c.class"; // both builds have it (the jars have the same class names; the checksum tells them apart)
         }
         if (v == GameVersion.INF_20100325_1640) {
             return "net/minecraft/a/a/g.class";
@@ -247,9 +308,12 @@ public class GameClassLoader extends ClassLoader {
     public void verifyHooks() throws IOException {
         try {
             if (version != GameVersion.INF_20100630_1340) {
-                loadClass(version == GameVersion.INF_20100325_1640 ? "net.minecraft.a.a.g"
+                loadClass(version == GameVersion.INF_20100325_1640 || version == GameVersion.INF_20100413_1953
+                        ? "net.minecraft.a.a.g"
                         : version == GameVersion.INF_20100313 || version == GameVersion.INF_20100320
-                        || version == GameVersion.INF_20100321 ? "net.minecraft.a.a.f" : "net.minecraft.a.a.e");
+                        || version == GameVersion.INF_20100321 || version == GameVersion.INF_20100327
+                        || version == GameVersion.INF_20100330_1611
+                        ? "net.minecraft.a.a.f" : "net.minecraft.a.a.e");
                 for (String c : seededClasses(version)) {
                     loadClass(c); // the generator classes are patched when they load
                 }

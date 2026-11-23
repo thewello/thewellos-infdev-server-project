@@ -74,6 +74,14 @@ public final class Server316Impl implements Server316 {
         return server.getPort();
     }
 
+    public int getViewDistance() {
+        return server.getViewDistance();
+    }
+
+    public int getSpawnRadius() {
+        return server.getSpawnProtection();
+    }
+
     public String getMotd() {
         return server.getMotd();
     }

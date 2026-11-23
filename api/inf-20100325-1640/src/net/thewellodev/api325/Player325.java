@@ -77,4 +77,14 @@ public interface Player325 extends CommandSender {
 
     /** The time (milliseconds since 1970) at which this player connected. */
     long getLoginTime();
+
+    /** Makes the player run a command as if it was typed in the chat. */
+    default boolean performCommand(String commandLine) {
+        return TheWello325.getServer().dispatchCommand(this, commandLine);
+    }
+
+    /** Teleports the player to another player. */
+    default void teleport(Player325 other) {
+        teleport(other.getLocation());
+    }
 }

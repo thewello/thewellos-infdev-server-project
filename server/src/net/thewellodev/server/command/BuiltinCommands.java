@@ -435,7 +435,7 @@ public final class BuiltinCommands {
                     }
                     sb.append(p.isEnabled() ? "&a" : "&c").append(p.getName());
                 }
-                s.sendMessage("&ePlugin'ler (" + ps.size() + "): " + sb);
+                s.sendMessage("&ePlugins (" + ps.size() + "): " + sb);
                 return true;
             }
         });

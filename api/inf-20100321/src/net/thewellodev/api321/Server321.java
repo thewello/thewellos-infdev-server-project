@@ -113,4 +113,41 @@ public interface Server321 {
 
     /** How long the server has been running, in milliseconds. */
     long getUptimeMillis();
+
+    /** The view distance in chunks. */
+    int getViewDistance();
+
+    /** The size of the area around the spawn point that only operators may change (spawn-protection, in blocks). */
+    int getSpawnRadius();
+
+    /** The only world of the server, in a list. */
+    default java.util.List<? extends World321> getWorlds() {
+        return java.util.Collections.singletonList(getWorld());
+    }
+
+    /** The world with this name (case does not matter), or null. */
+    default World321 getWorld(String name) {
+        World321 w = getWorld();
+        return w != null && w.getName().equalsIgnoreCase(name) ? w : null;
+    }
+
+    /** The same as {@link #isOnlineMode()}. */
+    default boolean getOnlineMode() {
+        return isOnlineMode();
+    }
+
+    /** The same as {@link #isWhitelistEnabled()}. */
+    default boolean hasWhitelist() {
+        return isWhitelistEnabled();
+    }
+
+    /** The same as {@link #matchPlayers(String)}. */
+    default java.util.List<? extends Player321> matchPlayer(String partialName) {
+        return matchPlayers(partialName);
+    }
+
+    /** The same as {@link #broadcastMessage(String, String)}. */
+    default int broadcast(String message, String permission) {
+        return broadcastMessage(message, permission);
+    }
 }

@@ -113,4 +113,33 @@ public interface World {
 
     /** The stored sky light (0 to 15) of a block, or -1 (see {@link #getBlockLightAt}). The darkness of the night is not subtracted. */
     int getSkyLightAt(int x, int y, int z);
+
+    /** The block type at a location. */
+    default int getBlockTypeIdAt(Location loc) {
+        return getBlockTypeIdAt(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+    }
+
+    /** The y of the lowest free block above the highest solid block of the column of a location. */
+    default int getHighestBlockYAt(Location loc) {
+        return getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ());
+    }
+
+    /** The block that is the lowest free one above the highest solid block of a column. */
+    default Block getHighestBlockAt(int x, int z) {
+        return getBlockAt(x, getHighestBlockYAt(x, z), z);
+    }
+
+    default Block getHighestBlockAt(Location loc) {
+        return getHighestBlockAt(loc.getBlockX(), loc.getBlockZ());
+    }
+
+    /** The height of the world in blocks. */
+    default int getMaxHeight() {
+        return 128;
+    }
+
+    /** The x coordinate of the chunk that holds the block coordinate. */
+    default int getChunkCoord(int blockCoord) {
+        return blockCoord >> 4;
+    }
 }

@@ -35,4 +35,14 @@ public class BlockPlaceEvent extends BlockEvent implements Cancellable {
     public void setCancelled(boolean cancel) {
         this.cancelled = cancel;
     }
+
+    /** The block that is placed (the same as {@link #getBlock()}; it still has its old type while the event runs). */
+    public Block325 getBlockPlaced() {
+        return getBlock();
+    }
+
+    /** The type of the block that the new block replaces (water, grass and so on; 0 for air). */
+    public int getReplacedTypeId() {
+        return getBlock().getTypeId();
+    }
 }
