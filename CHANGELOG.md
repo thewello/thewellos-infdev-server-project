@@ -1,13 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Fixed
-
-- **Slow ticks.** In build 20100413-1953 the light queue is worked off for at most 10 ms in a tick (it was worked off completely, and
-  one call of the game does up to 100000 steps). A sand block that rests on something is no longer tracked as falling. The warning
-  "Server is behind" now also tells the time of the light, the falling sand and the block ticks of the build.
-
 ## 2.3.0
 
 ### Added
@@ -61,6 +53,10 @@
   runs at each autosave, when the server stops and at the end of `/convertworld`. `delete-old-world=false` in `server.properties` keeps it.
 
 ### Fixed
+
+- **Slow ticks.** In build 20100413-1953 the light queue is worked off for at most 10 ms in a tick (it was worked off completely, and
+  one call of the game does up to 100000 steps). A sand block that rests on something is no longer tracked as falling. The warning
+  "Server is behind" now also tells the time of the light, the falling sand and the block ticks of the build.
 
 - **Sand and gravel fall by cells** (builds 20100325-1640 to 20100413-1953). The games of these builds move a sand or gravel block
   to the lowest free cell at once, so a block that lost its support seemed to teleport. The server now lets it fall, one step in
