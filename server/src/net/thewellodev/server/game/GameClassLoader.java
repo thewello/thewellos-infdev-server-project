@@ -62,7 +62,7 @@ public class GameClassLoader extends ClassLoader {
             return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.a.b", "net.minecraft.a.a.a.b.a",
                     "net.minecraft.a.a.a.b.c"};
         }
-        if (v == GameVersion.INF_20100413_1953) {
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415) {
             // the world, the noise and the big tree make a Random of their own
             return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.c.a.a", "net.minecraft.a.a.c.b.c"};
         }
@@ -80,13 +80,13 @@ public class GameClassLoader extends ClassLoader {
             addSandHook(t, "net/minecraft/a/a/c/w", "net/minecraft/a/a/g");
         } else if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
             addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/f");
-        } else if (v == GameVersion.INF_20100413_1953) {
+        } else if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415) {
             addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/g");
         }
         if (v == GameVersion.INF_20100325_1640) {
             addTickHooks(t, "net/minecraft/a/a/g", "f", false);
         }
-        if (v == GameVersion.INF_20100413_1953) {
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415) {
             addTickHooks(t, "net/minecraft/a/a/g", "i", true);
         }
         if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
@@ -222,7 +222,7 @@ public class GameClassLoader extends ClassLoader {
         if (v == GameVersion.INF_20100313) {
             return "net/minecraft/a/a/f.class";
         }
-        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415 || v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
             return "com/a/a/c.class"; // both builds have it (the jars have the same class names; the checksum tells them apart)
         }
         if (v == GameVersion.INF_20100325_1640) {
@@ -308,7 +308,7 @@ public class GameClassLoader extends ClassLoader {
     public void verifyHooks() throws IOException {
         try {
             if (version != GameVersion.INF_20100630_1340) {
-                loadClass(version == GameVersion.INF_20100325_1640 || version == GameVersion.INF_20100413_1953
+                loadClass(version == GameVersion.INF_20100325_1640 || version == GameVersion.INF_20100413_1953 || version == GameVersion.INF_20100414 || version == GameVersion.INF_20100415
                         ? "net.minecraft.a.a.g"
                         : version == GameVersion.INF_20100313 || version == GameVersion.INF_20100320
                         || version == GameVersion.INF_20100321 || version == GameVersion.INF_20100327

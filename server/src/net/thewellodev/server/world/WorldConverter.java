@@ -170,6 +170,14 @@ public final class WorldConverter {
 
     /** Whether a chunk of the older build can be used by the newer one. */
     public static boolean supportsStep(GameVersion from, GameVersion to) {
+        if (to == GameVersion.INF_20100415) {
+            // 414 -> 415: the same Alpha layout and tags; every older build as into 414
+            return from == GameVersion.INF_20100414 || supportsStep(from, GameVersion.INF_20100414);
+        }
+        if (to == GameVersion.INF_20100414) {
+            // 413-1953 -> 414: the same game and the same Alpha layout and tags; every older build as into 413-1953
+            return from == GameVersion.INF_20100413_1953 || supportsStep(from, GameVersion.INF_20100413_1953);
+        }
         if (to == GameVersion.INF_20100413_1953) {
             // 330-1611 -> 413-1953: the same Alpha layout and tags; every older build as into 330-1611
             return from == GameVersion.INF_20100330_1611 || supportsStep(from, GameVersion.INF_20100330_1611);
@@ -255,7 +263,8 @@ public final class WorldConverter {
 
     /** Builds whose worlds are in the Alpha level format (327 and later). */
     public static boolean usesAlphaLayout(GameVersion v) {
-        return v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611 || v == GameVersion.INF_20100413_1953;
+        return v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611 || v == GameVersion.INF_20100413_1953
+                || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415;
     }
 
     /** The chunk file of the Alpha layout: X mod 64 and Z mod 64 are folders, the name has X and Z in base 36. */

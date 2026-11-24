@@ -1004,6 +1004,7 @@ public final class TW316Client {
             c.sendShort(Protocol.HEALTH, Math.max(0, hp));
         }
         lastHealthSent = hp;
+        digTick(mc, c, hp);
         if (hp <= 0) {
             if (!deadReported) {
                 deadReported = true;
@@ -1228,6 +1229,169 @@ public final class TW316Client {
         }
     }
 
+    // ----- block-breaking progress (the cracks of the other players) -----------------------------------------
+
+    /** What other players dig at: entity id -> {x, y, z, stage 0-9, time of the last message}. */
+    private static final java.util.Map<Integer, long[]> remoteDigs = new java.util.HashMap<Integer, long[]>();
+    private static int lastDigX, lastDigY, lastDigZ, lastDigStage = -1;
+    private static Class<?> digControllerC;
+    private static Field digProgress, digX, digY, digZ;
+    private static Method crackMethod;
+    private static Constructor<?> hitCtor, vecCtor;
+    private static Field crackLevel;
+    private static boolean inCrack, digFailed;
+
+    /** Once per tick: tells the server which block the own player digs at and how far it is (so that the others see the cracks). */
+    private static void digTick(Object mc, TWConnection c, int hp) {
+        try {
+            int stage = -1;
+            int dx = lastDigX, dy = lastDigY, dz = lastDigZ;
+            Object ctl = mc.getClass().getField("a").get(mc);
+            if (ctl != null && hp > 0) {
+                if (digControllerC == null) {
+                    digControllerC = Class.forName("net.minecraft.client.d.b", true, mc.getClass().getClassLoader());
+                    digProgress = digControllerC.getDeclaredField("f");
+                    digX = digControllerC.getDeclaredField("c");
+                    digY = digControllerC.getDeclaredField("d");
+                    digZ = digControllerC.getDeclaredField("e");
+                    digProgress.setAccessible(true);
+                    digX.setAccessible(true);
+                    digY.setAccessible(true);
+                    digZ.setAccessible(true);
+                }
+                if (digControllerC.isInstance(ctl)) {
+                    float f = digProgress.getFloat(ctl);
+                    if (f > 0.0F) {
+                        stage = Math.min(9, (int) (f * 10.0F));
+                        dx = digX.getInt(ctl);
+                        dy = digY.getInt(ctl);
+                        dz = digZ.getInt(ctl);
+                    }
+                }
+            }
+            if (stage != lastDigStage || (stage >= 0 && (dx != lastDigX || dy != lastDigY || dz != lastDigZ))) {
+                if (stage < 0) {
+                    c.sendDig(lastDigX, lastDigY, lastDigZ, -1);
+                } else {
+                    c.sendDig(dx, dy, dz, stage);
+                }
+                lastDigStage = stage;
+                lastDigX = dx;
+                lastDigY = dy;
+                lastDigZ = dz;
+            }
+        } catch (Throwable t) {
+            if (!digFailed) {
+                digFailed = true;
+                System.err.println("[Infdev MP] block-breaking progress: " + t);
+            }
+        }
+    }
+
+    /**
+     * Hook at the start of the renderer's method that draws the crack of the block the own player digs at: draws the cracks of
+     * the blocks that other players dig at, by calling that method for their blocks (with their progress in the renderer's field).
+     */
+    public static void renderDigs(Object renderer, Object viewer, float partial) {
+        if (inCrack || remoteDigs.isEmpty() || renderer == null || mcRef == null) {
+            return;
+        }
+        inCrack = true;
+        float saved = 0;
+        boolean haveSaved = false;
+        try {
+            Object world = mcWorld.get(mcRef);
+            if (world == null) {
+                return;
+            }
+            if (crackMethod == null) {
+                for (Method m : renderer.getClass().getMethods()) {
+                    Class<?>[] pt = m.getParameterTypes();
+                    if (m.getName().equals("a") && m.getReturnType() == void.class && pt.length > 0
+                            && ((pt.length == 5 && pt[1].getName().equals("net.minecraft.a.d.c") && pt[3].getName().equals("net.minecraft.a.b.k"))
+                            || (pt.length == 3 && pt[0].getName().equals("net.minecraft.a.d.c")
+                            && pt[2].getName().equals("net.minecraft.a.b.k")))) {
+                        crackMethod = m;
+                    }
+                }
+                Class<?> hitC = Class.forName("net.minecraft.a.d.c", true, renderer.getClass().getClassLoader());
+                hitCtor = hitC.getConstructor(int.class, int.class, int.class, int.class, Class.forName("net.minecraft.a.d.a", true,
+                        renderer.getClass().getClassLoader()));
+                vecCtor = hitCtor.getParameterTypes()[4].getConstructor(double.class, double.class, double.class);
+                crackLevel = renderer.getClass().getField("a");
+                if (crackMethod == null) {
+                    throw new NoSuchMethodException("the crack method of the renderer");
+                }
+            }
+            saved = crackLevel.getFloat(renderer);
+            haveSaved = true;
+            long now = System.currentTimeMillis();
+            org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
+            synchronized (remoteDigs) {
+                java.util.Iterator<long[]> it = remoteDigs.values().iterator();
+                while (it.hasNext()) {
+                    long[] d = it.next();
+                    if (now - d[4] > 3000) {
+                        it.remove();
+                        continue;
+                    }
+                    int x = (int) d[0], y = (int) d[1], z = (int) d[2];
+                    if ((Integer) getBlock.invoke(world, x, y, z) == 0) {
+                        continue;
+                    }
+                    crackLevel.setFloat(renderer, (d[3] + 1) / 10.0F - 0.01F);
+                    Object hit = hitCtor.newInstance(x, y, z, 0, vecCtor.newInstance(x + 0.5, y + 0.5, z + 0.5));
+                    if (crackMethod.getParameterTypes().length == 5) {
+                        crackMethod.invoke(renderer, viewer, hit, 0, null, partial);
+                    } else {
+                        crackMethod.invoke(renderer, hit, 0, null);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            synchronized (remoteDigs) {
+                remoteDigs.clear();
+            }
+            if (!digFailed) {
+                digFailed = true;
+                System.err.println("[Infdev MP] could not draw the cracks of other players: " + t);
+                t.printStackTrace();
+            }
+        } finally {
+            if (haveSaved) {
+                try {
+                    crackLevel.setFloat(renderer, saved);
+                } catch (Throwable ignored) {
+                    // the renderer is gone
+                }
+            }
+            org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
+            inCrack = false;
+        }
+    }
+
+    /**
+     * The player that died is flagged as dead after a second and the world takes it out of its entity list: it is never ticked
+     * again (no gravity, no movement, a camera that does not follow). A respawn clears the flag and puts the player back.
+     */
+    private static void revive(Object world, Object player) throws Exception {
+        entDead.setBoolean(player, false);
+        boolean listed = false;
+        for (Field f : world.getClass().getDeclaredFields()) {
+            if (List.class.isAssignableFrom(f.getType())) {
+                f.setAccessible(true);
+                List<?> l = (List<?>) f.get(world);
+                if (l != null && l.contains(player)) {
+                    listed = true;
+                    break;
+                }
+            }
+        }
+        if (!listed) {
+            worldAddEntity.invoke(world, player);
+        }
+    }
+
     private static void respawn() throws Exception {
         Object mc = mcRef;
         TWConnection c = conn;
@@ -1240,6 +1404,7 @@ public final class TW316Client {
         mouseFlush = 10;
         playerClassForFire.getField("I").setInt(player, 0); // not burning any more
         respawnMethod.invoke(player); // the game's own reset: full health, normal size, free of blocks
+        revive(world, player);
         deadReported = false;
         lastHealthSent = 20;
         c.sendSimple(Protocol.RESPAWN);
@@ -2347,8 +2512,20 @@ public final class TW316Client {
                 }
                 break;
             case Protocol.REMOVE_PLAYER:
+                synchronized (remoteDigs) {
+                    remoteDigs.remove(p.i1);
+                }
                 synchronized (remotes) {
                     remotes.remove(p.i1);
+                }
+                break;
+            case Protocol.DIG_PROGRESS:
+                synchronized (remoteDigs) {
+                    if (p.i5 < 0) {
+                        remoteDigs.remove(p.i1);
+                    } else if (remoteDigs.size() < 64) {
+                        remoteDigs.put(p.i1, new long[]{p.i2, p.i3, p.i4, p.i5, System.currentTimeMillis()});
+                    }
                 }
                 break;
             case Protocol.TELEPORT: {

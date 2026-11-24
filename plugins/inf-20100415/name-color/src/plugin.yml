@@ -1,0 +1,6 @@
+name: NameColor
+version: 1.0
+api: inf-20100415
+main: net.thewellodev.namecolor.NameColor
+author: TheWello
+description: Colours player names in chat by role (gold for listed players, red for operators).

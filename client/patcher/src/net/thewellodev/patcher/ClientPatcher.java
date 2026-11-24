@@ -264,8 +264,41 @@ public class ClientPatcher {
      * a/c/f (the class a/c/e is the entity registry now). The screens, the digging controller, the renderer and the settings class
      * keep their names from 20100327.
      */
+    /**
+     * inf-20100415: the classes of 20100414 with the client classes moved by a letter (the title screen is client/q, the settings
+     * client/k, the game renderer client/a/e, the sorter of the renderer client/a/l, the HUD client/c/n). Mobs can be made again,
+     * so the game's mob spawner is left alone.
+     */
+    public static HookTransformer createTransformer415() {
+        renamed415 = true;
+        try {
+            return createTransformerWith("TW415Client", false);
+        } finally {
+            renamed415 = false;
+        }
+    }
+
+    /** True while the hooks of inf-20100415 are made (the client classes have other names). */
+    private static boolean renamed415;
+
+    /** inf-20100414 has the classes of 20100413-1953 (only the item use code differs), so it gets the same hooks. */
+    public static HookTransformer createTransformer414() {
+        return createTransformerFor413Family("TW414Client");
+    }
+
     public static HookTransformer createTransformer413() {
-        HookTransformer t = createTransformer325(true, "TW413Client", "net/minecraft/a/a/g", "i", "h", "net/minecraft/a/c/f");
+        return createTransformerFor413Family("TW413Client");
+    }
+
+    private static HookTransformer createTransformerFor413Family(String hookClass) {
+        return createTransformerWith(hookClass, true);
+    }
+
+    private static HookTransformer createTransformerWith(String hookClass, boolean stubSpawner) {
+        HookTransformer t = createTransformer325(true, hookClass, "net/minecraft/a/a/g", "i", "h", "net/minecraft/a/c/f");
+        if (!stubSpawner) {
+            return t;
+        }
         // The game's mob spawner (a/a/b, called by the digging controller every tick) makes a mob by reflection with the mob's
         // constructor, and the mob classes of this build have none: it fails and prints a stack trace again and again. There are
         // no mobs in the multiplayer game, so the spawner does nothing.
@@ -300,10 +333,11 @@ public class ClientPatcher {
         final String entityTickName = is327 ? "c" : "b";
         Screens screens = is327
                 ? new Screens("net/minecraft/client/c/o", "net/minecraft/client/c/c", "net/minecraft/client/c/e",
-                "net/minecraft/client/c/m")
+                renamed415 ? "net/minecraft/client/c/n" : "net/minecraft/client/c/m")
                 : Screens.DEFAULT;
         HookTransformer t = createTransformerInfdev(H, true, W, "c", "b", clientTick,
-                is327 ? "net/minecraft/client/p" : "net/minecraft/client/q", false, true, screens);
+                is327 ? (renamed415 ? "net/minecraft/client/q" : "net/minecraft/client/p") : "net/minecraft/client/q", false, true,
+                screens);
         addLateHooks(t, H, W, is327 ? "net/minecraft/a/a/b/a" : "net/minecraft/a/a/c/a",
                 is327 ? "net/minecraft/a/a/b/s" : "net/minecraft/a/a/c/s", livingBase);
         addSandHook(t, H, W, is327 ? "net/minecraft/a/a/b/w" : "net/minecraft/a/a/c/w");
@@ -330,7 +364,8 @@ public class ClientPatcher {
         // The game's settings object (client/k) no longer keeps the session id of the account (it was for the session
         // check): the constructor passes it on to the mod through a system property, so that online-mode servers can still
         // verify the player
-        t.custom(is327 ? "net/minecraft/client/j" : "net/minecraft/client/k", new HookTransformer.Custom() {
+        t.custom(is327 ? (renamed415 ? "net/minecraft/client/k" : "net/minecraft/client/j") : "net/minecraft/client/k",
+                new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode m = findMethod(cn, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
                 if (m == null) {
@@ -525,6 +560,42 @@ public class ClientPatcher {
                 il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/client/b/h", "b", "(FFFFFF)V", false));
                 m.instructions.insert(il);
                 return true;
+            }
+        });
+    }
+
+    /**
+     * The block-breaking cracks: the world renderer draws the crack of the block that the own player digs at (the method that is
+     * called with the block that the crosshair points at). Before it does, the mod draws the cracks that other players dig, by
+     * calling the same method for their blocks (see renderDigs in the mods).
+     */
+    private static void addDigRenderHook(HookTransformer t, final String H) {
+        t.custom("net/minecraft/client/a/b", new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                boolean done = false;
+                for (MethodNode m : cn.methods) {
+                    if (!m.name.equals("a")) {
+                        continue;
+                    }
+                    InsnList il = new InsnList();
+                    if (m.desc.equals("(Lnet/minecraft/a/c/e/a;Lnet/minecraft/a/d/c;ILnet/minecraft/a/b/k;F)V")) {
+                        // (viewer, hit, mode, stack, partial tick)
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                        il.add(new VarInsnNode(Opcodes.FLOAD, 5));
+                    } else if (m.desc.equals("(Lnet/minecraft/a/d/c;ILnet/minecraft/a/b/k;)V")) {
+                        // build 20100227: (hit, mode, stack)
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                        il.add(new InsnNode(Opcodes.ACONST_NULL));
+                        il.add(new InsnNode(Opcodes.FCONST_0));
+                    } else {
+                        continue;
+                    }
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "renderDigs", "(Ljava/lang/Object;Ljava/lang/Object;F)V", false));
+                    m.instructions.insert(il);
+                    done = true;
+                }
+                return done;
             }
         });
     }
@@ -741,8 +812,9 @@ public class ClientPatcher {
                                                            final String titleInternal, final boolean sessionCheck,
                                                            final boolean noClientChecks, final Screens screens) {
         HookTransformer t = new HookTransformer();
-        addMouseHook(t, "net/minecraft/client/a/d");
+        addMouseHook(t, renamed415 ? "net/minecraft/client/a/e" : "net/minecraft/client/a/d");
         addFirstPersonArmHook(t);
+        addDigRenderHook(t, H);
         if (sessionCheck) {
             t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
                 public boolean apply(ClassNode cn) {
@@ -881,7 +953,7 @@ public class ClientPatcher {
             }
         };
         t.custom("net/minecraft/client/a/a", fixCompare);
-        t.custom("net/minecraft/client/a/j", fixCompare);
+        t.custom(renamed415 ? "net/minecraft/client/a/l" : "net/minecraft/client/a/j", fixCompare);
         // Renderer: draw the other players at the end of the entity pass (the camera is set up there)
         t.custom("net/minecraft/client/a/b", new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
@@ -1099,7 +1171,7 @@ public class ClientPatcher {
             System.out.println("TheWello's Infdev Client Patcher");
             System.out.println("Usage: java -jar TheWellosInfdevClientPatcher.jar <inf-...jar> <output.jar | folder>");
             System.out.println("With a folder the output is named <build>-mp.jar (for example inf-20100316-mp.jar).");
-            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953 (detected from the jar)");
+            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415 (detected from the jar)");
             System.exit(1);
         }
         boolean publicizeOnly = args.length > 2 && args[2].equals("--publicize-only");
@@ -1127,8 +1199,15 @@ public class ClientPatcher {
         if (jar.getEntry("kb.class") != null && jar.getEntry("fe.class") != null && jar.getEntry("aw.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100630_1340;
         } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/c/f.class") != null
+                && jar.getEntry("net/minecraft/a/a/h.class") != null && jar.getEntry("net/minecraft/client/q.class") != null
+                && jar.getEntry("net/minecraft/client/a/l.class") != null) {
+            version = net.thewellodev.protocol.GameVersion.INF_20100415;
+        } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/c/f.class") != null
                 && jar.getEntry("net/minecraft/a/a/h.class") != null && jar.getEntry("net/minecraft/client/p.class") != null) {
-            version = net.thewellodev.protocol.GameVersion.INF_20100413_1953;
+            // 20100413-1953 and 20100414 have the same class names: the class that uses an item on a block tells them apart
+            version = "c842e56a4235105350669a5c58c9464b2e959d6792affb60193bfff97a962381".equals(
+                    entrySha256(jar, "net/minecraft/a/b/d.class"))
+                    ? net.thewellodev.protocol.GameVersion.INF_20100414 : net.thewellodev.protocol.GameVersion.INF_20100413_1953;
         } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/a/f.class") != null
                 && jar.getEntry("net/minecraft/a/a/c/a.class") != null && jar.getEntry("net/minecraft/client/p.class") != null) {
             // 20100327 and 20100330-1611 have the same class names: the chunk class of the later one knows the tag TerrainPopulated
@@ -1152,9 +1231,36 @@ public class ClientPatcher {
         } else if (jar.getEntry("net/minecraft/a/a/e.class") != null && jar.getEntry("net/minecraft/client/d.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100227_1433;
         } else {
-            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611 or inf-20100413-1953 client jar: " + in);
+            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414 or inf-20100415 client jar: " + in);
         }
         return version;
+    }
+
+    private static String entrySha256(JarFile jar, String entry) throws IOException {
+        java.util.zip.ZipEntry e = jar.getEntry(entry);
+        if (e == null) {
+            return "";
+        }
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            InputStream is = jar.getInputStream(e);
+            try {
+                byte[] buf = new byte[8192];
+                int r;
+                while ((r = is.read(buf)) > 0) {
+                    md.update(buf, 0, r);
+                }
+            } finally {
+                is.close();
+            }
+            StringBuilder sb = new StringBuilder();
+            for (byte b : md.digest()) {
+                sb.append(String.format("%02x", b & 255));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IOException(ex);
+        }
     }
 
     private static boolean classHasText(JarFile jar, String entry, String text) throws IOException {
@@ -1204,9 +1310,11 @@ public class ClientPatcher {
         boolean is327 = version == net.thewellodev.protocol.GameVersion.INF_20100327;
         boolean is330 = version == net.thewellodev.protocol.GameVersion.INF_20100330_1611;
         boolean is413 = version == net.thewellodev.protocol.GameVersion.INF_20100413_1953;
-        String modDir = is413 ? "/mod413/" : is330 ? "/mod330/" : is327 ? "/mod327/" : is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
+        boolean is414 = version == net.thewellodev.protocol.GameVersion.INF_20100414;
+        boolean is415 = version == net.thewellodev.protocol.GameVersion.INF_20100415;
+        String modDir = is415 ? "/mod415/" : is414 ? "/mod414/" : is413 ? "/mod413/" : is330 ? "/mod330/" : is327 ? "/mod327/" : is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
         HookTransformer t = publicizeOnly ? new HookTransformer()
-                : (is413 ? createTransformer413() : is330 ? createTransformer330() : is327 ? createTransformer327() : is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
+                : (is415 ? createTransformer415() : is414 ? createTransformer414() : is413 ? createTransformer413() : is330 ? createTransformer330() : is327 ? createTransformer327() : is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
         Manifest mf = new Manifest();
         mf.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         if (!publicizeOnly) {

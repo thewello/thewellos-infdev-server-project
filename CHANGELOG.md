@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.4.0
+
+### Added
+
+- **Support for `inf-20100415`** (protocol 21): server bridge, client mod, plugin API (`api415`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 414, 413-1953, 330-1611, 327, 325-1640, 321, 320, 316, 313 and 227. The build lets the
+  mobs spawn again (their classes have constructors), rewrites the lighting code and moves some names (the world's time, player and
+  tile list fields, the light queue and the client classes from `client/j` on). The client patcher tells the build from 414 by the
+  class `client/a/l`; the mobs of every game are shared as in 330-1611.
+- **Support for `inf-20100414`** (protocol 20): server bridge, client mod, plugin API (`api414`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 413-1953, 330-1611, 327, 325-1640, 321, 320, 316, 313 and 227. The jar is the one of
+  20100413-1953 with one changed class (the item-use code, which no longer crashes when a torch, a sapling or a flower is placed), so
+  everything of 413-1953 works the same. The client patcher tells the two builds apart by the checksum of that class.
+
+### Fixed
+
+- **A player who respawned did not move any more** (builds 20100227 to 20100414). The game flags a dead player as dead after a
+  second and takes it out of its entity list, and the respawn did not undo that: the player was never ticked again (no gravity, no
+  movement, a camera that did not follow) and the other players saw it hanging in the air. The respawn now clears the flag and puts
+  the player back.
+- **Block-breaking cracks of other players** (builds 20100227 to 20100415): a player now sees the cracks on the block that another player
+  digs at (the digging progress was already relayed by the server; the clients now send and draw it).
+
 ## 2.3.0
 
 ### Added

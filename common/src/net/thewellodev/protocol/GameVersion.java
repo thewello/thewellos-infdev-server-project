@@ -113,8 +113,28 @@ public final class GameVersion {
             "6b9513e811a83cbf81ac57bc0c8d01a02fa3f0a88a284afe08a5145961002679", true, "TWBridge413",
             "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
 
+    /**
+     * The build after 20100413-1953: the same game, except that the code that uses an item on a block no longer crashes when a
+     * torch, a sapling or a flower is placed. Names, world format and protocol of the game are those of 20100413-1953.
+     */
+    public static final GameVersion INF_20100414 = new GameVersion(
+            "inf-20100414", "Infdev inf-20100414", 20,
+            "9eb3b22601b3871a4dd8cec36f4af9310ae052fd04442da0590353caa441079b", true, "TWBridge414",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    /**
+     * The build after 20100414: mobs spawn on their own again (every mob class has a constructor), the lighting code was rewritten,
+     * most entities are saved with their chunks, and the world and the client classes moved some names (the world's player,
+     * time and tile list fields, and the client classes from "client/j" on). The world is in the same Alpha level format.
+     */
+    public static final GameVersion INF_20100415 = new GameVersion(
+            "inf-20100415", "Infdev inf-20100415", 21,
+            "bef3eadbe765604f0b578bfc757adc5c73fb4d449ac1a02355c9f7bd1af97e47", true, "TWBridge415",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
     private static final GameVersion[] ALL = {INF_20100630_1340, INF_20100227_1433, INF_20100313, INF_20100316,
-            INF_20100320, INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953};
+            INF_20100320, INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953,
+            INF_20100414, INF_20100415};
 
     /**
      * The builds a world can be converted along, from the oldest to the newest: from each one to the next.
@@ -122,7 +142,8 @@ public final class GameVersion {
      */
     public static GameVersion[] chronological() {
         return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316, INF_20100320,
-                INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953};
+                INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953,
+                INF_20100414, INF_20100415};
     }
 
     public final String id;

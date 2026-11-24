@@ -77,7 +77,7 @@ import java.util.logging.Logger;
 public class TWServer implements Server {
 
     public static final String NAME = "TheWello's Infdev Server";
-    public static final String VERSION = "2.3.0";
+    public static final String VERSION = "2.4.0";
 
     private final Logger logger;
     private final File dir;
@@ -292,7 +292,7 @@ public class TWServer implements Server {
         long t0 = System.currentTimeMillis();
         // the terrain of the newest build is slow to make (caves): a smaller area is made before the server opens
         int r = Math.min(viewDistance, gameVersion == GameVersion.INF_20100325_1640 || gameVersion == GameVersion.INF_20100327
-                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 ? 3 : 4);
+                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415 ? 3 : 4);
         int total = (2 * r + 1) * (2 * r + 1), done = 0, shown = 0;
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
@@ -320,6 +320,18 @@ public class TWServer implements Server {
             net.thewellodev.server.api313.Server313Impl view = new net.thewellodev.server.api313.Server313Impl(this);
             net.thewellodev.api313.TheWello313.setServer(view);
             pluginManager.setTranslator(new net.thewellodev.server.api313.Events313(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100415) {
+            // this build has its own plugin API too (net.thewellodev.api415)
+            net.thewellodev.server.api415.Server415Impl view = new net.thewellodev.server.api415.Server415Impl(this);
+            net.thewellodev.api415.TheWello415.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api415.Events415(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100414) {
+            // this build has its own plugin API too (net.thewellodev.api414)
+            net.thewellodev.server.api414.Server414Impl view = new net.thewellodev.server.api414.Server414Impl(this);
+            net.thewellodev.api414.TheWello414.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api414.Events414(pluginManager, view.api()));
         }
         if (gameVersion == GameVersion.INF_20100413_1953) {
             // this build has its own plugin API too (net.thewellodev.api413)
@@ -2214,7 +2226,7 @@ public class TWServer implements Server {
         return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
                 || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640
                 || gameVersion == GameVersion.INF_20100327 || gameVersion == GameVersion.INF_20100330_1611
-                || gameVersion == GameVersion.INF_20100413_1953;
+                || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415;
     }
 
     /** Who picked up which shared item (number to slot): the first one asked gets it. */
@@ -2353,7 +2365,7 @@ public class TWServer implements Server {
     private void handleExplosion(TWPlayer p, float power, double x, double y, double z) {
         if (!(gameVersion == GameVersion.INF_20100320 || gameVersion == GameVersion.INF_20100321
                 || gameVersion == GameVersion.INF_20100325_1640 || gameVersion == GameVersion.INF_20100327
-                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953)
+                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415)
                 || !p.allow("explosion", 2) || p.dead
                 || p.gameMode == 2 || !(power > 0f) || power > 8f || !isFinite(x) || !isFinite(y) || !isFinite(z)
                 || !near(p, x, y, z, 64)) {
@@ -2762,7 +2774,7 @@ public class TWServer implements Server {
         return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
                 || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640
                 || gameVersion == GameVersion.INF_20100327 || gameVersion == GameVersion.INF_20100330_1611
-                || gameVersion == GameVersion.INF_20100413_1953;
+                || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415;
     }
 
     /** The game mode of a player changed: the spectator disappears from the others (and shows again). */
