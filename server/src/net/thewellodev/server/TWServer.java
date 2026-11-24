@@ -593,7 +593,7 @@ public class TWServer implements Server {
                 if (System.currentTimeMillis() - lastWarn > 15000) {
                     logger.warning("Server is behind! Skipping " + behind + " ticks (" + (-sleep / 1000000L) + " ms). That tick took " + (int) mspt + " ms: logins "
                             + segLogin / 1000000L + " ms, packets " + segPackets / 1000000L + " ms, world " + segWorld / 1000000L + " ms, chunks " + segChunks / 1000000L
-                            + " ms");
+                            + " ms" + (bridge.tickProfile() == null ? "" : " (world: " + bridge.tickProfile() + ")"));
                     lastWarn = System.currentTimeMillis();
                 }
                 next = System.nanoTime();

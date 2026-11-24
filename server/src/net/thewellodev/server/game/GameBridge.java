@@ -38,6 +38,11 @@ public interface GameBridge {
      */
     void tick(int[] playerBlockPositions);
 
+    /** The time that the parts of the last tick took, for the warning of a slow tick (null if the build does not tell). */
+    default String tickProfile() {
+        return null;
+    }
+
     int getBlockId(int x, int y, int z);
 
     int getBlockMeta(int x, int y, int z);

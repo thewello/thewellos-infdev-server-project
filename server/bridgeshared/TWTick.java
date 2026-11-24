@@ -141,6 +141,9 @@ public final class TWTick {
         if (id != 12 && id != 13) {
             return true;
         }
+        if (!sandFree(h.block(x, y - 1, z))) {
+            return true; // it rests on something: nothing to do
+        }
         for (Faller f : fallers) {
             if (f.x == x && f.z == z && f.y == y) {
                 return true;
@@ -150,6 +153,11 @@ public final class TWTick {
             fallers.add(new Faller(x, y, z, id));
         }
         return true;
+    }
+
+    /** The number of blocks that are falling. */
+    public static int fallingCount() {
+        return fallers.size();
     }
 
     /** Moves the falling blocks on by one tick; the bridge calls it in every tick. */

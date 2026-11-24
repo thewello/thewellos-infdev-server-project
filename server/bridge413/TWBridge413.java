@@ -384,6 +384,12 @@ public class TWBridge413 implements GameBridge {
      * Called once per server tick with the block positions of the players: the world keeps no entities or scheduled
      * updates here, so the only work is to drop far chunks when many are in memory.
      */
+    private String profile;
+
+    public String tickProfile() {
+        return profile;
+    }
+
     private final TWTick.Host sandHost = new TWTick.Host() {
         public int block(int x, int y, int z) {
             return getBlockId(x, y, z);
@@ -395,9 +401,15 @@ public class TWBridge413 implements GameBridge {
     };
 
     public void tick(int[] playerBlockPositions) {
-        drainLight(300);
+        long t0 = System.nanoTime();
+        drainLight(300, t0 + 10000000L); // the queue is worked off for at most 10 ms in a tick (one call can do 100000 steps)
+        long t1 = System.nanoTime();
         TWTick.sandTick(sandHost); // sand and gravel fall by cells
+        long t2 = System.nanoTime();
         blockTicks();
+        long t3 = System.nanoTime();
+        profile = "light " + (t1 - t0) / 1000000L + " ms, sand " + (t2 - t1) / 1000000L + " ms (" + TWTick.fallingCount()
+                + " falling), block ticks " + (t3 - t2) / 1000000L + " ms";
         if (playerBlockPositions != null) {
             lastPlayers = playerBlockPositions.clone();
         }
@@ -1046,10 +1058,14 @@ public class TWBridge413 implements GameBridge {
      * torches, and the queue would grow forever.
      */
     private void drainLight(int max) {
+        drainLight(max, Long.MAX_VALUE);
+    }
+
+    private void drainLight(int max, long deadline) {
         deferPopulate++;
         try {
             java.util.List<?> queue = (java.util.List<?>) lightQueue.get(world);
-            for (int i = 0; i < max && !queue.isEmpty(); i++) {
+            for (int i = 0; i < max && !queue.isEmpty() && System.nanoTime() < deadline; i++) {
                 lightDrain.invoke(world);
             }
         } catch (Exception ex) {
