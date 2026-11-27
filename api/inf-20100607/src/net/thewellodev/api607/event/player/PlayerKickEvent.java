@@ -1,0 +1,42 @@
+package net.thewellodev.api607.event.player;
+
+import net.thewellodev.api607.Player607;
+import net.thewellodev.api.event.Cancellable;
+
+/** Called when a player is kicked. If cancelled, the player stays. */
+public class PlayerKickEvent extends PlayerEvent implements Cancellable {
+
+    private String reason;
+    private String leaveMessage;
+    private boolean cancelled;
+
+    public PlayerKickEvent(Player607 player, String reason, String leaveMessage) {
+        super(player);
+        this.reason = reason;
+        this.leaveMessage = leaveMessage;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
+    }
+
+    public String getLeaveMessage() {
+        return leaveMessage;
+    }
+
+    public void setLeaveMessage(String leaveMessage) {
+        this.leaveMessage = leaveMessage;
+    }
+
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    public void setCancelled(boolean cancel) {
+        this.cancelled = cancel;
+    }
+}

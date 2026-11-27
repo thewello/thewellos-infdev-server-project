@@ -156,6 +156,14 @@ public class ServerGui {
         frame.setSize(1280, 720);
         frame.setMinimumSize(new Dimension(900, 520));
         frame.setLocationRelativeTo(null);
+        // test aid: -Dthewellodev.guipos=x,y puts the window there (negative values: a monitor left of the main one) and
+        // does not take the keyboard focus
+        String testPos = System.getProperty("thewellodev.guipos");
+        if (testPos != null) {
+            String[] xy = testPos.split(",");
+            frame.setLocation(Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
+            frame.setAutoRequestFocus(false);
+        }
         frame.setVisible(true);
 
         LogSetup.addListener(new LogSetup.LogListener() {

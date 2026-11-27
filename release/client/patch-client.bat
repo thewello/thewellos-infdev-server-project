@@ -7,7 +7,7 @@ rem named after the build, for example patched\inf-20100316-mp.jar. Java 8 is re
 cd /d "%~dp0"
 if "%~1"=="" (
   echo Usage: patch-client.bat ^<original Infdev jar^>
-  echo Supported builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415
+  echo Supported builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415, inf-20100420, inf-20100607, inf-20100608
   exit /b 1
 )
 set "JAVA=java"

@@ -132,9 +132,35 @@ public final class GameVersion {
             "bef3eadbe765604f0b578bfc757adc5c73fb4d449ac1a02355c9f7bd1af97e47", true, "TWBridge415",
             "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
 
+    /**
+     * The build after 20100415: a much faster level generator with less mountainous land, saplings that grow into big trees, mobs
+     * that spawn less often, and chunks whose saving the world's tick works off. The class and member names are those of 20100415;
+     * the chunk provider of the game got a boolean method.
+     */
+    public static final GameVersion INF_20100420 = new GameVersion(
+            "inf-20100420", "Infdev inf-20100420", 22,
+            "6ac2fd02255322c01341930d50f71015fa501b234f2c8d7ce8c52206d9c2fb17", true, "TWBridge420",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    /**
+     * The build after 20100420 (June 2010): doors, ladders and signs, and many block, item and entity names moved by a letter.
+     */
+    public static final GameVersion INF_20100607 = new GameVersion(
+            "inf-20100607", "Infdev inf-20100607", 23,
+            "c31c923de4dbc1dcf334e1947eb566ff0046908a69cee4772631662f228bec8f", true, "TWBridge607",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
+    /**
+     * The build after 20100607: bug fixes (doors and signs), the names of 20100607.
+     */
+    public static final GameVersion INF_20100608 = new GameVersion(
+            "inf-20100608", "Infdev inf-20100608", 24,
+            "4618eef4c238825df47489600ff2c2c0b1c772626ea6190c7c6fb49ea39aaf3b", true, "TWBridge608",
+            "difficulty", "spawnmob", "killmobs", "clearitems", "give", "seed");
+
     private static final GameVersion[] ALL = {INF_20100630_1340, INF_20100227_1433, INF_20100313, INF_20100316,
             INF_20100320, INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953,
-            INF_20100414, INF_20100415};
+            INF_20100414, INF_20100415, INF_20100420, INF_20100607, INF_20100608};
 
     /**
      * The builds a world can be converted along, from the oldest to the newest: from each one to the next.
@@ -143,7 +169,7 @@ public final class GameVersion {
     public static GameVersion[] chronological() {
         return new GameVersion[]{INF_20100227_1433, INF_20100313, INF_20100316, INF_20100320,
                 INF_20100321, INF_20100325_1640, INF_20100327, INF_20100330_1611, INF_20100413_1953,
-                INF_20100414, INF_20100415};
+                INF_20100414, INF_20100415, INF_20100420, INF_20100607, INF_20100608};
     }
 
     public final String id;

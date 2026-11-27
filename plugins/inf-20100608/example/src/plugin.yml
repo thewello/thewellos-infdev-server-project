@@ -1,0 +1,15 @@
+name: HelloPlugin
+version: 1.0
+api: inf-20100608
+main: com.example.hello.HelloPlugin
+author: TheWello
+description: Example plugin for the inf-20100608 API
+commands:
+  hello:
+    description: Greets the player
+    usage: /<command> [name]
+    aliases: [greet]
+  top:
+    description: Teleports you to the highest block above you
+    usage: /<command>
+    permission: hello.top

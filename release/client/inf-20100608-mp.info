@@ -1,0 +1,10 @@
+release-date:1275955200000
+compile-date:1275955200000
+url:
+launch-method:indev
+launch-method-link:
+proxy-args:-Dhttp.proxyHost=betacraft.uk -Dhttp.proxyPort=11702
+other-name:TheWello's Infdev Multiplayer (Infdev 20100608)
+macos-mousefix:true
+custom:true
+file-ver:1

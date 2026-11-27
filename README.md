@@ -30,6 +30,9 @@ The project provides:
 | `inf-20100413-1953` | 19 | As 20100330-1611, plus beaches, erosion and big trees in the terrain; leaves no longer decay; the mobs of the earlier builds cannot be made (the classes have no constructor). Same Alpha level format. | `net.thewellodev.api413` | `inf-20100330-1611`, `inf-20100327`, `inf-20100325-1640`, `inf-20100321`, `inf-20100320`, `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
 | `inf-20100414` | 20 | As 20100413-1953; the code that uses an item on a block no longer crashes when a torch, a sapling or a flower is placed. Same Alpha level format. | `net.thewellodev.api414` | `inf-20100413-1953`, `inf-20100330-1611`, `inf-20100327`, `inf-20100325-1640`, `inf-20100321`, `inf-20100320`, `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
 | `inf-20100415` | 21 | As 20100414; mobs spawn on their own again and the lighting code was rewritten (lighting updates properly and uses less memory). Same Alpha level format. | `net.thewellodev.api415` | `inf-20100414`, `inf-20100413-1953`, `inf-20100330-1611`, `inf-20100327`, `inf-20100325-1640`, `inf-20100321`, `inf-20100320`, `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
+| `inf-20100420` | 22 | As 20100415; a much faster level generator with less mountainous land, saplings grow into big trees, mobs spawn less often. Same Alpha level format. | `net.thewellodev.api420` | `inf-20100415`, `inf-20100414`, `inf-20100413-1953`, `inf-20100330-1611`, `inf-20100327`, `inf-20100325-1640`, `inf-20100321`, `inf-20100320`, `inf-20100316`, `inf-20100313`, `inf-20100227-1433` |
+| `inf-20100607` | 23 | Doors, ladders and signs (the text of a sign is shared); big trees only from saplings. Same Alpha level format. | `net.thewellodev.api607` | `inf-20100420` and every older build |
+| `inf-20100608` | 24 | Bug fixes of 20100607: better door turning, signs drop themselves and are mined faster, shadows under entities. Same Alpha level format. | `net.thewellodev.api608` | `inf-20100607` and every older build |
 | `inf-20100630-1340` | 11 | Mobs, items, minecarts, signs, chests and furnaces, health, inventory. | `net.thewellodev.api` | none |
 
 Builds are independent: nothing is carried over from a newer build to an older one, and every build keeps its own
@@ -45,14 +48,14 @@ worlds in `worlds/<game-version>/<level-name>/`. More builds can be added; see
 - Account verification with Mojang's session server (`online-mode=true`).
 - Operators, whitelist, bans, optional automatic port mapping (UPnP), rate limits and input checks.
 - Worlds are taken over lazily from an older build: the new world starts at once and each chunk is converted the first
-  time a player needs it. The old world is only read, and is deleted when every chunk has been taken over (`delete-old-world`). The worlds of `inf-20100327`, `inf-20100330-1611`, `inf-20100413-1953`, `inf-20100414` and `inf-20100415` are in the Alpha level format: the
+  time a player needs it. The old world is only read, and is deleted when every chunk has been taken over (`delete-old-world`). The worlds of `inf-20100327`, `inf-20100330-1611`, `inf-20100413-1953`, `inf-20100414`, `inf-20100415`, `inf-20100420`, `inf-20100607` and `inf-20100608` are in the Alpha level format: the
   game's own single player can open it.
 - A watchdog writes a report to `logs/` if a server tick hangs.
 
 **Client**
 - A patcher that turns your original jar into a multiplayer-capable jar. It detects the build by itself.
 - A multiplayer menu on the title screen, direct connect, chat, other players with names, and PvP.
-- Block, metadata and light synchronisation, shared day and night, and (builds `inf-20100316` to `inf-20100415`) items on
+- Block, metadata and light synchronisation, shared day and night, and (builds `inf-20100316` to `inf-20100608`) items on
   the ground and the mobs that arrows make, which every player sees; in `inf-20100320` and later also shared chests and furnaces.
 
 **Optional plugins** (in the release bundle, `server/optional-plugins/<build>/`)
@@ -97,9 +100,9 @@ not by its file name.
 |---|---|
 | `common/` | Protocol definitions, the build registry (`GameVersion`) and the ASM hook tool, shared by server and client |
 | `server/src/` | Server core, control panel, world takeover |
-| `server/bridge/`, `bridge227/`, `bridge313/`, `bridge316/`, `bridge320/`, `bridge321/`, `bridge325/`, `bridge327/`, `bridge330/`, `bridge413/`, `bridge414/`, `bridge415/` | Bridges between the server and the original game classes of each build |
+| `server/bridge/`, `bridge227/`, `bridge313/`, `bridge316/`, `bridge320/`, `bridge321/`, `bridge325/`, `bridge327/`, `bridge330/`, `bridge413/`, `bridge414/`, `bridge415/`, `bridge420/`, `bridge607/`, `bridge608/` | Bridges between the server and the original game classes of each build |
 | `client/patcher/` | Patcher that adds multiplayer support to an original client jar |
-| `client/mod/`, `mod227/`, `mod313/`, `mod316/`, `mod320/`, `mod321/`, `mod325/`, `mod327/`, `mod330/`, `mod413/`, `mod414/`, `mod415/` | Client-side multiplayer code of each build, added to the patched jar |
+| `client/mod/`, `mod227/`, `mod313/`, `mod316/`, `mod320/`, `mod321/`, `mod325/`, `mod327/`, `mod330/`, `mod413/`, `mod414/`, `mod415/`, `mod420/`, `mod607/`, `mod608/` | Client-side multiplayer code of each build, added to the patched jar |
 | `api/<build>/` | The plugin API of each build |
 | `plugins/<build>/` | Example and bundled plugins of each build (`src/` with a `plugin.yml`) |
 | `release/` | Templates for the release bundle (end-user README, start scripts, `server.properties`, BetaCraft files) |

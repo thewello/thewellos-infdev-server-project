@@ -3,7 +3,7 @@ TheWello's Infdev Server Project
 
 A multiplayer server, a client patcher and plugin APIs for early Minecraft Infdev builds.
 
-Supported builds:  inf-20100227-1433   inf-20100313   inf-20100316   inf-20100320   inf-20100321   inf-20100325-1640   inf-20100327   inf-20100330-1611   inf-20100413-1953   inf-20100414   inf-20100415   inf-20100630-1340
+Supported builds:  inf-20100227-1433   inf-20100313   inf-20100316   inf-20100320   inf-20100321   inf-20100325-1640   inf-20100327   inf-20100330-1611   inf-20100413-1953   inf-20100414   inf-20100415   inf-20100420   inf-20100607   inf-20100608   inf-20100630-1340
 
 One server runs one build, chosen in server/server.properties (game-version). Only players with a client of the same
 build can join. This package contains no Minecraft code: you patch your own copy of the game jar.
@@ -28,19 +28,19 @@ Requirements: Java 8 (the server and the patcher), and your own original Infdev 
       matching .json file in it (rename them to <build>-mp.jar and <build>-mp.json), and make a launcher profile
       that uses that version.
    In the game click "Multiplayer..." on the title screen and type the server address. Builds 20100227, 20100313,
-   20100316 to 20100415: press T to chat or type a command such as /help (Enter sends, Esc cancels). The pause menu has a
+   20100316 to 20100608: press T to chat or type a command such as /help (Enter sends, Esc cancels). The pause menu has a
    Disconnect button; saving and loading levels are off online.
 
 2. Server
    a) Put the original jar of the build you want to run into server/ (for example inf-20100316.jar; the patched
       client jar of the same build also works). The server recognises a jar by its contents, not by its name.
    b) Open server.properties and set game-version to inf-20100630-1340, inf-20100227-1433, inf-20100313,
-      inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414 or inf-20100415.
+      inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415, inf-20100420, inf-20100607 or inf-20100608.
    c) Run start-server.bat (or start-server.sh). Allow the Windows firewall when asked.
       Worlds are saved in worlds/<game-version>/<level-name>/.
    d) Moving a world to a newer build: set game-version to the newer build and start the server. If the level
       (level-name) has no world for that build yet but has one for an older build, the server takes it over
-      (227 -> 313 -> 316 -> 320 -> 321 -> 325-1640 -> 327 -> 330-1611 -> 413-1953 -> 414 -> 415; later builds are added as they come). It starts at once, and each chunk is converted the
+      (227 -> 313 -> 316 -> 320 -> 321 -> 325-1640 -> 327 -> 330-1611 -> 413-1953 -> 414 -> 415 -> 420 -> 607 -> 608; later builds are added as they come). It starts at once, and each chunk is converted the
       first time a player needs it. The old world is only read, never changed, so the older build still opens it.
       Type /convertworld to convert the chunks nobody has visited yet (a batch every tick; the server keeps
       running); the console says when the old folder is not needed any more. Until then do not delete it: the
@@ -114,16 +114,26 @@ Notes on the builds
                      20100330-1611) and the lighting code of the game was rewritten. A world of 20100414 is moved over as the
                      files it is, in the background; older worlds are converted. The older world's folder is deleted when every
                      chunk has been taken over.
+  inf-20100420       As 20100415 in the same Alpha level format. The new land is made much faster and is less mountainous,
+                     saplings grow into big trees and mobs spawn less often. A world of 20100415 is moved over as the files
+                     it is, in the background; older worlds are converted. The older world's folder is deleted when every
+                     chunk has been taken over.
+  inf-20100607       Doors, ladders and signs; the text of a sign is kept by the server and shown to everybody. A world of
+                     20100420 is moved over as the files it is, in the background; older worlds are converted. The older
+                     world's folder is deleted when every chunk has been taken over.
+  inf-20100608       Bug fixes of 20100607 (doors and signs, shadows under entities). A world of 20100607 is moved over as
+                     the files it is, in the background; older worlds are converted. The older world's folder is deleted
+                     when every chunk has been taken over.
   inf-20100630-1340  The full game: mobs, items, minecarts, signs, chests and furnaces, health and inventory.
 
-Inventories (inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414 and inf-20100415)
+Inventories (inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415, inf-20100420, inf-20100607 and inf-20100608)
   These builds keep the inventory on the client, and every build starts a player with its own default one. The server
   saves what the client reports (worlds/<build>/<level>/players/<name>.inv) and sends it back at the next login, also
   when the server moves to a newer build. A player who was never saved starts with the default of the build he joins.
 
 Freezes
   If the server hangs (one tick takes more than 8 seconds) it writes where it is stuck to logs/freeze-<time>.txt.
-  If the game window of build 227, 313, 316, 320, 321, 325-1640, 327, 330-1611, 413-1953, 414 or 415 hangs while connected, it writes
+  If the game window of build 227, 313, 316, 320, 321, 325-1640, 327, 330-1611, 413-1953, 414, 415, 420, 607 or 608 hangs while connected, it writes
   %USERPROFILE%\.thewellodev\freeze-<time>.txt. Please attach these files to a bug report.
 
 Notes

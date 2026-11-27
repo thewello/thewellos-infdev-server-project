@@ -77,7 +77,7 @@ import java.util.logging.Logger;
 public class TWServer implements Server {
 
     public static final String NAME = "TheWello's Infdev Server";
-    public static final String VERSION = "2.4.0";
+    public static final String VERSION = "2.5.0";
 
     private final Logger logger;
     private final File dir;
@@ -292,7 +292,7 @@ public class TWServer implements Server {
         long t0 = System.currentTimeMillis();
         // the terrain of the newest build is slow to make (caves): a smaller area is made before the server opens
         int r = Math.min(viewDistance, gameVersion == GameVersion.INF_20100325_1640 || gameVersion == GameVersion.INF_20100327
-                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415 ? 3 : 4);
+                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415 || gameVersion == GameVersion.INF_20100420 || gameVersion == GameVersion.INF_20100607 || gameVersion == GameVersion.INF_20100608 ? 3 : 4);
         int total = (2 * r + 1) * (2 * r + 1), done = 0, shown = 0;
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
@@ -320,6 +320,24 @@ public class TWServer implements Server {
             net.thewellodev.server.api313.Server313Impl view = new net.thewellodev.server.api313.Server313Impl(this);
             net.thewellodev.api313.TheWello313.setServer(view);
             pluginManager.setTranslator(new net.thewellodev.server.api313.Events313(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100608) {
+            // this build has its own plugin API too (net.thewellodev.api608)
+            net.thewellodev.server.api608.Server608Impl view = new net.thewellodev.server.api608.Server608Impl(this);
+            net.thewellodev.api608.TheWello608.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api608.Events608(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100607) {
+            // this build has its own plugin API too (net.thewellodev.api607)
+            net.thewellodev.server.api607.Server607Impl view = new net.thewellodev.server.api607.Server607Impl(this);
+            net.thewellodev.api607.TheWello607.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api607.Events607(pluginManager, view.api()));
+        }
+        if (gameVersion == GameVersion.INF_20100420) {
+            // this build has its own plugin API too (net.thewellodev.api420)
+            net.thewellodev.server.api420.Server420Impl view = new net.thewellodev.server.api420.Server420Impl(this);
+            net.thewellodev.api420.TheWello420.setServer(view);
+            pluginManager.setTranslator(new net.thewellodev.server.api420.Events420(pluginManager, view.api()));
         }
         if (gameVersion == GameVersion.INF_20100415) {
             // this build has its own plugin API too (net.thewellodev.api415)
@@ -2226,7 +2244,7 @@ public class TWServer implements Server {
         return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
                 || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640
                 || gameVersion == GameVersion.INF_20100327 || gameVersion == GameVersion.INF_20100330_1611
-                || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415;
+                || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415 || gameVersion == GameVersion.INF_20100420 || gameVersion == GameVersion.INF_20100607 || gameVersion == GameVersion.INF_20100608;
     }
 
     /** Who picked up which shared item (number to slot): the first one asked gets it. */
@@ -2365,7 +2383,7 @@ public class TWServer implements Server {
     private void handleExplosion(TWPlayer p, float power, double x, double y, double z) {
         if (!(gameVersion == GameVersion.INF_20100320 || gameVersion == GameVersion.INF_20100321
                 || gameVersion == GameVersion.INF_20100325_1640 || gameVersion == GameVersion.INF_20100327
-                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415)
+                || gameVersion == GameVersion.INF_20100330_1611 || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415 || gameVersion == GameVersion.INF_20100420 || gameVersion == GameVersion.INF_20100607 || gameVersion == GameVersion.INF_20100608)
                 || !p.allow("explosion", 2) || p.dead
                 || p.gameMode == 2 || !(power > 0f) || power > 8f || !isFinite(x) || !isFinite(y) || !isFinite(z)
                 || !near(p, x, y, z, 64)) {
@@ -2774,7 +2792,7 @@ public class TWServer implements Server {
         return gameVersion == GameVersion.INF_20100316 || gameVersion == GameVersion.INF_20100320
                 || gameVersion == GameVersion.INF_20100321 || gameVersion == GameVersion.INF_20100325_1640
                 || gameVersion == GameVersion.INF_20100327 || gameVersion == GameVersion.INF_20100330_1611
-                || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415;
+                || gameVersion == GameVersion.INF_20100413_1953 || gameVersion == GameVersion.INF_20100414 || gameVersion == GameVersion.INF_20100415 || gameVersion == GameVersion.INF_20100420 || gameVersion == GameVersion.INF_20100607 || gameVersion == GameVersion.INF_20100608;
     }
 
     /** The game mode of a player changed: the spectator disappears from the others (and shows again). */

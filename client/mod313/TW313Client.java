@@ -1245,10 +1245,38 @@ public final class TW313Client {
     }
 
     /**
-     * Hook at the start of the renderer's method that draws the crack of the block the own player digs at: draws the cracks of
-     * the blocks that other players dig at, by calling that method for their blocks (with their progress in the renderer's field).
+     * After the terrain of each frame: draws the cracks of the blocks that other players dig at. (The
+     * game draws the own crack only while the crosshair points at a block within reach, so the others cannot be drawn from there.)
      */
-    public static void renderDigs(Object renderer, Object viewer, float partial) {
+    public static void renderDigsPass(Object renderer, float partial) {
+        if (remoteDigs.isEmpty() || mcRef == null) {
+            return;
+        }
+        try {
+            Object world = mcWorld.get(mcRef);
+            Object own = world == null ? null : worldPlayer.get(world);
+            if (own == null) {
+                return;
+            }
+            org.lwjgl.opengl.GL11.glPushAttrib(org.lwjgl.opengl.GL11.GL_ALL_ATTRIB_BITS);
+            try {
+                org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_LIGHTING);
+                // the game draws the water first without writing colours (a depth pass): the crack needs them
+                org.lwjgl.opengl.GL11.glColorMask(true, true, true, true);
+                renderDigs(renderer, own, partial);
+            } finally {
+                org.lwjgl.opengl.GL11.glPopAttrib();
+            }
+        } catch (Throwable t) {
+            System.err.println("[Infdev MP] cracks: " + t);
+        }
+    }
+
+    /**
+     * Draws the cracks of the blocks that other players dig at, by calling the renderer's method that draws the crack of the own
+     * player for their blocks (with their progress in the renderer's field).
+     */
+    private static void renderDigs(Object renderer, Object viewer, float partial) {
         if (inCrack || remoteDigs.isEmpty() || renderer == null || mcRef == null) {
             return;
         }

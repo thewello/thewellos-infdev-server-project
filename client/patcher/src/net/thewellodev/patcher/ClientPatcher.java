@@ -278,8 +278,44 @@ public class ClientPatcher {
         }
     }
 
-    /** True while the hooks of inf-20100415 are made (the client classes have other names). */
+    /** inf-20100608 has the class and member names of 20100607: the same hooks. */
+    public static HookTransformer createTransformer608() {
+        renamed415 = true;
+        renamed607 = true;
+        try {
+            return createTransformerWith("TW608Client", false);
+        } finally {
+            renamed415 = false;
+            renamed607 = false;
+        }
+    }
+
+    /** inf-20100607: the hooks of 415 with the names that moved again. */
+    public static HookTransformer createTransformer607() {
+        renamed415 = true;
+        renamed607 = true;
+        try {
+            return createTransformerWith("TW607Client", false);
+        } finally {
+            renamed415 = false;
+            renamed607 = false;
+        }
+    }
+
+    /** inf-20100420 has the class and member names of 20100415: the same hooks. */
+    public static HookTransformer createTransformer420() {
+        renamed415 = true;
+        try {
+            return createTransformerWith("TW420Client", false);
+        } finally {
+            renamed415 = false;
+        }
+    }
+
+    /** True while the hooks of inf-20100415 or later are made (the client classes have other names). */
     private static boolean renamed415;
+    /** True while the hooks of inf-20100607 are made: the sand and furnace blocks, the biped model and the HUD moved again. */
+    private static boolean renamed607;
 
     /** inf-20100414 has the classes of 20100413-1953 (only the item use code differs), so it gets the same hooks. */
     public static HookTransformer createTransformer414() {
@@ -333,14 +369,14 @@ public class ClientPatcher {
         final String entityTickName = is327 ? "c" : "b";
         Screens screens = is327
                 ? new Screens("net/minecraft/client/c/o", "net/minecraft/client/c/c", "net/minecraft/client/c/e",
-                renamed415 ? "net/minecraft/client/c/n" : "net/minecraft/client/c/m")
+                renamed415 && !renamed607 ? "net/minecraft/client/c/n" : "net/minecraft/client/c/m")
                 : Screens.DEFAULT;
         HookTransformer t = createTransformerInfdev(H, true, W, "c", "b", clientTick,
                 is327 ? (renamed415 ? "net/minecraft/client/q" : "net/minecraft/client/p") : "net/minecraft/client/q", false, true,
                 screens);
         addLateHooks(t, H, W, is327 ? "net/minecraft/a/a/b/a" : "net/minecraft/a/a/c/a",
-                is327 ? "net/minecraft/a/a/b/s" : "net/minecraft/a/a/c/s", livingBase);
-        addSandHook(t, H, W, is327 ? "net/minecraft/a/a/b/w" : "net/minecraft/a/a/c/w");
+                is327 ? (renamed607 ? "net/minecraft/a/a/b/t" : "net/minecraft/a/a/b/s") : "net/minecraft/a/a/c/s", livingBase);
+        addSandHook(t, H, W, is327 ? (renamed607 ? "net/minecraft/a/a/b/x" : "net/minecraft/a/a/b/w") : "net/minecraft/a/a/c/w");
         if (is327) {
             // The game saves its world (level.dat and the chunks, every 200 ticks and when the world is closed). This
             // game's world comes from the server and is never saved: the private save method does nothing. The body is
@@ -544,6 +580,7 @@ public class ClientPatcher {
      * The arm is put at rest first (the model's own pose method with all values 0).
      */
     private static void addFirstPersonArmHook(HookTransformer t) {
+        final String model = renamed607 ? "net/minecraft/client/b/i" : "net/minecraft/client/b/h"; // the biped model
         t.custom("net/minecraft/client/a/a/g", new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
                 MethodNode m = findMethod(cn, "a", "()V");
@@ -552,12 +589,12 @@ public class ClientPatcher {
                 }
                 InsnList il = new InsnList();
                 il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                il.add(new FieldInsnNode(Opcodes.GETFIELD, "net/minecraft/client/a/a/g", "e", "Lnet/minecraft/client/b/h;"));
+                il.add(new FieldInsnNode(Opcodes.GETFIELD, "net/minecraft/client/a/a/g", "e", "L" + model + ";"));
                 for (int i = 0; i < 5; i++) {
                     il.add(new InsnNode(Opcodes.FCONST_0));
                 }
                 il.add(new LdcInsnNode(Float.valueOf(0.0625f)));
-                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/client/b/h", "b", "(FFFFFF)V", false));
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, model, "b", "(FFFFFF)V", false));
                 m.instructions.insert(il);
                 return true;
             }
@@ -565,39 +602,80 @@ public class ClientPatcher {
     }
 
     /**
-     * The block-breaking cracks: the world renderer draws the crack of the block that the own player digs at (the method that is
-     * called with the block that the crosshair points at). Before it does, the mod draws the cracks that other players dig, by
-     * calling the same method for their blocks (see renderDigs in the mods).
+     * The game renderer draws the water after the entities and then the crack of the block under the own crosshair (only when
+     * there is one within reach). The cracks of the blocks that other players dig at are drawn there too, in every frame: after
+     * the water pass, with the same camera. Build 20100227 has no such water pass; its hook is at the end of the terrain method
+     * of the world renderer.
      */
-    private static void addDigRenderHook(HookTransformer t, final String H) {
-        t.custom("net/minecraft/client/a/b", new HookTransformer.Custom() {
+    private static void addDigRenderHook(HookTransformer t, final String H, String gameRenderer) {
+        if (!H.equals("TW227Client")) {
+            addDigAfterWater(t, H, gameRenderer);
+            return;
+        }
+        addDigInTerrain(t, H);
+    }
+
+    private static void addDigAfterWater(HookTransformer t, final String H, String gameRenderer) {
+        t.custom(gameRenderer, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
-                boolean done = false;
                 for (MethodNode m : cn.methods) {
-                    if (!m.name.equals("a")) {
-                        continue;
+                    for (AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
+                        if (!isCall(n, "net/minecraft/client/a/b", "a", "(ID)V")) {
+                            continue;
+                        }
+                        // the local that holds the world renderer: the last object load before the call's arguments
+                        int renderer = -1;
+                        for (AbstractInsnNode b = n.getPrevious(); b != null; b = b.getPrevious()) {
+                            if (b.getOpcode() == Opcodes.ALOAD) {
+                                renderer = ((VarInsnNode) b).var;
+                                break;
+                            }
+                        }
+                        for (AbstractInsnNode a = n.getNext(); a != null && renderer >= 0; a = a.getNext()) {
+                            if (isCall(a, "org/lwjgl/opengl/GL11", "glDepthMask", "(Z)V")) {
+                                InsnList il = new InsnList();
+                                il.add(new VarInsnNode(Opcodes.ALOAD, renderer));
+                                il.add(new VarInsnNode(Opcodes.FLOAD, 1)); // the partial tick (the method's argument)
+                                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "renderDigsPass", "(Ljava/lang/Object;F)V",
+                                        false));
+                                m.instructions.insert(a, il);
+                                return true;
+                            }
+                        }
                     }
-                    InsnList il = new InsnList();
-                    if (m.desc.equals("(Lnet/minecraft/a/c/e/a;Lnet/minecraft/a/d/c;ILnet/minecraft/a/b/k;F)V")) {
-                        // (viewer, hit, mode, stack, partial tick)
-                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                        il.add(new VarInsnNode(Opcodes.ALOAD, 1));
-                        il.add(new VarInsnNode(Opcodes.FLOAD, 5));
-                    } else if (m.desc.equals("(Lnet/minecraft/a/d/c;ILnet/minecraft/a/b/k;)V")) {
-                        // build 20100227: (hit, mode, stack)
-                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                        il.add(new InsnNode(Opcodes.ACONST_NULL));
-                        il.add(new InsnNode(Opcodes.FCONST_0));
-                    } else {
-                        continue;
-                    }
-                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "renderDigs", "(Ljava/lang/Object;Ljava/lang/Object;F)V", false));
-                    m.instructions.insert(il);
-                    done = true;
                 }
-                return done;
+                return false;
             }
         });
+    }
+
+    private static void addDigInTerrain(HookTransformer t, final String H) {
+        t.custom("net/minecraft/client/a/b", new HookTransformer.Custom() {
+            public boolean apply(ClassNode cn) {
+                MethodNode m = findMethod(cn, "a", "(Lnet/minecraft/a/c/e/a;I)I");
+                if (m == null) {
+                    return false;
+                }
+                for (AbstractInsnNode n = m.instructions.getFirst(); n != null; n = n.getNext()) {
+                    if (n.getOpcode() == Opcodes.IRETURN) {
+                        InsnList il = new InsnList();
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                        il.add(new InsnNode(Opcodes.FCONST_1));
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, H, "renderDigsPass", "(Ljava/lang/Object;F)V", false));
+                        m.instructions.insertBefore(n, il);
+                    }
+                }
+                return true;
+            }
+        });
+    }
+
+    private static boolean isCall(AbstractInsnNode n, String owner, String name, String desc) {
+        if (!(n instanceof MethodInsnNode)) {
+            return false;
+        }
+        MethodInsnNode c = (MethodInsnNode) n;
+        return c.owner.equals(owner) && c.name.equals(name) && c.desc.equals(desc);
     }
 
     /** The hooks that builds 320 and later share: entities, item pick-ups, chests and furnaces, explosions. */
@@ -702,9 +780,11 @@ public class ClientPatcher {
      */
     private static void addSandHook(HookTransformer t, final String H, final String world, String sandBlock) {
         final String desc = "(L" + world + ";III)V";
+        // the sand block's own fall method (it moved to the name h in inf-20100607)
+        final String renamed607Name = renamed607 ? "h" : "e";
         t.custom(sandBlock, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
-                MethodNode m = findMethod(cn, "e", desc);
+                MethodNode m = findMethod(cn, renamed607Name, desc);
                 if (m == null) {
                     return false;
                 }
@@ -814,7 +894,6 @@ public class ClientPatcher {
         HookTransformer t = new HookTransformer();
         addMouseHook(t, renamed415 ? "net/minecraft/client/a/e" : "net/minecraft/client/a/d");
         addFirstPersonArmHook(t);
-        addDigRenderHook(t, H);
         if (sessionCheck) {
             t.custom("net/minecraft/client/d", new HookTransformer.Custom() {
                 public boolean apply(ClassNode cn) {
@@ -980,6 +1059,8 @@ public class ClientPatcher {
                 return !rets.isEmpty();
             }
         });
+        // The cracks of the blocks that other players dig at (see addDigRenderHook)
+        addDigRenderHook(t, H, renamed415 ? "net/minecraft/client/a/e" : "net/minecraft/client/a/d");
         // Pause menu: no saving or loading online, and a disconnect button (end of init, start of the click handler)
         t.custom(screens.pause, new HookTransformer.Custom() {
             public boolean apply(ClassNode cn) {
@@ -1171,7 +1252,7 @@ public class ClientPatcher {
             System.out.println("TheWello's Infdev Client Patcher");
             System.out.println("Usage: java -jar TheWellosInfdevClientPatcher.jar <inf-...jar> <output.jar | folder>");
             System.out.println("With a folder the output is named <build>-mp.jar (for example inf-20100316-mp.jar).");
-            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415 (detected from the jar)");
+            System.out.println("Builds: inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415, inf-20100420, inf-20100607, inf-20100608 (detected from the jar)");
             System.exit(1);
         }
         boolean publicizeOnly = args.length > 2 && args[2].equals("--publicize-only");
@@ -1198,10 +1279,20 @@ public class ClientPatcher {
         net.thewellodev.protocol.GameVersion version;
         if (jar.getEntry("kb.class") != null && jar.getEntry("fe.class") != null && jar.getEntry("aw.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100630_1340;
+        } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/client/a/d/c.class") != null
+                && jar.getEntry("net/minecraft/a/a/b/ak.class") != null && jar.getEntry("net/minecraft/client/q.class") != null) {
+            // 20100607 and 20100608 have the same class names: the sign block class tells them apart
+            version = "4c30b04efc502dc53a411b5ae8098a90637fc7cb7b8cf1d086c67bd6b7538677".equals(
+                    entrySha256(jar, "net/minecraft/a/a/b/aj.class"))
+                    ? net.thewellodev.protocol.GameVersion.INF_20100608
+                    : net.thewellodev.protocol.GameVersion.INF_20100607; // the sign renderer package is new in 607
         } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/c/f.class") != null
                 && jar.getEntry("net/minecraft/a/a/h.class") != null && jar.getEntry("net/minecraft/client/q.class") != null
                 && jar.getEntry("net/minecraft/client/a/l.class") != null) {
-            version = net.thewellodev.protocol.GameVersion.INF_20100415;
+            // 20100415 and 20100420 have the same class names: the world class tells them apart
+            version = "1125297debceff21cc0bdb7566e1c95c121189c81c989547135fa7b1770cea02".equals(
+                    entrySha256(jar, "net/minecraft/a/a/g.class"))
+                    ? net.thewellodev.protocol.GameVersion.INF_20100420 : net.thewellodev.protocol.GameVersion.INF_20100415;
         } else if (jar.getEntry("com/a/a/c.class") != null && jar.getEntry("net/minecraft/a/c/f.class") != null
                 && jar.getEntry("net/minecraft/a/a/h.class") != null && jar.getEntry("net/minecraft/client/p.class") != null) {
             // 20100413-1953 and 20100414 have the same class names: the class that uses an item on a block tells them apart
@@ -1231,7 +1322,7 @@ public class ClientPatcher {
         } else if (jar.getEntry("net/minecraft/a/a/e.class") != null && jar.getEntry("net/minecraft/client/d.class") != null) {
             version = net.thewellodev.protocol.GameVersion.INF_20100227_1433;
         } else {
-            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414 or inf-20100415 client jar: " + in);
+            throw new IOException("This file does not look like an inf-20100630-1340, inf-20100227-1433, inf-20100313, inf-20100316, inf-20100320, inf-20100321, inf-20100325-1640, inf-20100327, inf-20100330-1611, inf-20100413-1953, inf-20100414, inf-20100415, inf-20100420, inf-20100607 or inf-20100608 client jar: " + in);
         }
         return version;
     }
@@ -1312,9 +1403,12 @@ public class ClientPatcher {
         boolean is413 = version == net.thewellodev.protocol.GameVersion.INF_20100413_1953;
         boolean is414 = version == net.thewellodev.protocol.GameVersion.INF_20100414;
         boolean is415 = version == net.thewellodev.protocol.GameVersion.INF_20100415;
-        String modDir = is415 ? "/mod415/" : is414 ? "/mod414/" : is413 ? "/mod413/" : is330 ? "/mod330/" : is327 ? "/mod327/" : is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
+        boolean is420 = version == net.thewellodev.protocol.GameVersion.INF_20100420;
+        boolean is607 = version == net.thewellodev.protocol.GameVersion.INF_20100607;
+        boolean is608 = version == net.thewellodev.protocol.GameVersion.INF_20100608;
+        String modDir = is608 ? "/mod608/" : is607 ? "/mod607/" : is420 ? "/mod420/" : is415 ? "/mod415/" : is414 ? "/mod414/" : is413 ? "/mod413/" : is330 ? "/mod330/" : is327 ? "/mod327/" : is325 ? "/mod325/" : is321 ? "/mod321/" : is320 ? "/mod320/" : is316 ? "/mod316/" : is313 ? "/mod313/" : is227 ? "/mod227/" : "/mod/";
         HookTransformer t = publicizeOnly ? new HookTransformer()
-                : (is415 ? createTransformer415() : is414 ? createTransformer414() : is413 ? createTransformer413() : is330 ? createTransformer330() : is327 ? createTransformer327() : is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
+                : (is608 ? createTransformer608() : is607 ? createTransformer607() : is420 ? createTransformer420() : is415 ? createTransformer415() : is414 ? createTransformer414() : is413 ? createTransformer413() : is330 ? createTransformer330() : is327 ? createTransformer327() : is325 ? createTransformer325() : is321 ? createTransformer321() : is320 ? createTransformer320() : is316 ? createTransformer316() : is313 ? createTransformer313() : is227 ? createTransformer227() : createTransformer());
         Manifest mf = new Manifest();
         mf.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         if (!publicizeOnly) {

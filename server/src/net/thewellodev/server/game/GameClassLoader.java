@@ -46,6 +46,9 @@ public class GameClassLoader extends ClassLoader {
      * different terrain on every run, so they are replaced by TWSeed.random() (see bridgeshared/TWSeed.java).
      */
     private static String[] seededClasses(GameVersion v) {
+        if (v == GameVersion.INF_20100607 || v == GameVersion.INF_20100608) {
+            return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.c.a.a"}; // the big tree makes no Random any more
+        }
         if (v == GameVersion.INF_20100313) {
             return new String[]{"net.minecraft.a.a.f", "net.minecraft.a.a.e.e", "net.minecraft.a.a.c.a.a",
                     "net.minecraft.a.a.c.a.c"};
@@ -62,7 +65,7 @@ public class GameClassLoader extends ClassLoader {
             return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.a.b", "net.minecraft.a.a.a.b.a",
                     "net.minecraft.a.a.a.b.c"};
         }
-        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415) {
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415 || v == GameVersion.INF_20100420) {
             // the world, the noise and the big tree make a Random of their own
             return new String[]{"net.minecraft.a.a.g", "net.minecraft.a.a.c.a.a", "net.minecraft.a.a.c.b.c"};
         }
@@ -77,16 +80,18 @@ public class GameClassLoader extends ClassLoader {
     private static HookTransformer seedHooks(GameVersion v) {
         HookTransformer t = new HookTransformer();
         if (v == GameVersion.INF_20100325_1640) {
-            addSandHook(t, "net/minecraft/a/a/c/w", "net/minecraft/a/a/g");
+            addSandHook(t, "net/minecraft/a/a/c/w", "net/minecraft/a/a/g", "e");
         } else if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
-            addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/f");
-        } else if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415) {
-            addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/g");
+            addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/f", "e");
+        } else if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415 || v == GameVersion.INF_20100420) {
+            addSandHook(t, "net/minecraft/a/a/b/w", "net/minecraft/a/a/g", "e");
+        } else if (v == GameVersion.INF_20100607 || v == GameVersion.INF_20100608) {
+            addSandHook(t, "net/minecraft/a/a/b/x", "net/minecraft/a/a/g", "h");
         }
         if (v == GameVersion.INF_20100325_1640) {
             addTickHooks(t, "net/minecraft/a/a/g", "f", false);
         }
-        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415) {
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415 || v == GameVersion.INF_20100420 || v == GameVersion.INF_20100607 || v == GameVersion.INF_20100608) {
             addTickHooks(t, "net/minecraft/a/a/g", "i", true);
         }
         if (v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
@@ -131,12 +136,12 @@ public class GameClassLoader extends ClassLoader {
     }
 
     /** Sand and gravel: the private fall method (it moves the block to the lowest free cell at once) is handed to TWTick. */
-    private static void addSandHook(HookTransformer t, String sandBlock, String world) {
+    private static void addSandHook(HookTransformer t, String sandBlock, String world, final String method) {
         final String desc = "(L" + world + ";III)V";
         t.custom(sandBlock, new HookTransformer.Custom() {
             public boolean apply(org.objectweb.asm.tree.ClassNode cn) {
                 for (org.objectweb.asm.tree.MethodNode m : cn.methods) {
-                    if (m.name.equals("e") && m.desc.equals(desc)) {
+                    if (m.name.equals(method) && m.desc.equals(desc)) {
                         org.objectweb.asm.tree.LabelNode cont = new org.objectweb.asm.tree.LabelNode();
                         org.objectweb.asm.tree.InsnList il = new org.objectweb.asm.tree.InsnList();
                         il.add(new org.objectweb.asm.tree.VarInsnNode(org.objectweb.asm.Opcodes.ALOAD, 1));
@@ -222,7 +227,7 @@ public class GameClassLoader extends ClassLoader {
         if (v == GameVersion.INF_20100313) {
             return "net/minecraft/a/a/f.class";
         }
-        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415 || v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
+        if (v == GameVersion.INF_20100413_1953 || v == GameVersion.INF_20100414 || v == GameVersion.INF_20100415 || v == GameVersion.INF_20100420 || v == GameVersion.INF_20100607 || v == GameVersion.INF_20100608 || v == GameVersion.INF_20100327 || v == GameVersion.INF_20100330_1611) {
             return "com/a/a/c.class"; // both builds have it (the jars have the same class names; the checksum tells them apart)
         }
         if (v == GameVersion.INF_20100325_1640) {
@@ -308,7 +313,7 @@ public class GameClassLoader extends ClassLoader {
     public void verifyHooks() throws IOException {
         try {
             if (version != GameVersion.INF_20100630_1340) {
-                loadClass(version == GameVersion.INF_20100325_1640 || version == GameVersion.INF_20100413_1953 || version == GameVersion.INF_20100414 || version == GameVersion.INF_20100415
+                loadClass(version == GameVersion.INF_20100325_1640 || version == GameVersion.INF_20100413_1953 || version == GameVersion.INF_20100414 || version == GameVersion.INF_20100415 || version == GameVersion.INF_20100420 || version == GameVersion.INF_20100607 || version == GameVersion.INF_20100608
                         ? "net.minecraft.a.a.g"
                         : version == GameVersion.INF_20100313 || version == GameVersion.INF_20100320
                         || version == GameVersion.INF_20100321 || version == GameVersion.INF_20100327

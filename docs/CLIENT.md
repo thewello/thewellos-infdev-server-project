@@ -1,11 +1,18 @@
 # Client
 
+## Sounds
+
+The game loads its sounds only after it got their list from `http://www.minecraft.net/resources/`, which no longer answers. The
+launchers (`TWxxxLauncher`) ask for it through the proxy of BetaCraft (`betacraft.uk:11702`); only requests for `/resources/` go
+that way. Without internet, or with `-Dthewellodev.nosoundproxy=true`, the game runs without sounds. When BetaCraft starts the
+client, its own proxy setting from the `.info` file is used.
+
 ## Setup
 
 1. Patch your original game jar. In the release archive, run `client/patch-client.bat <original jar>`
    (`client/patch-client.sh` on other systems). The build is detected from the jar, and the result is written to
    `client/patched/<build>-mp.jar`, for example `inf-20100316-mp.jar`. Supported builds: `inf-20100227-1433`,
-   `inf-20100313`, `inf-20100316`, `inf-20100320`, `inf-20100321`, `inf-20100325-1640`, `inf-20100327`, `inf-20100330-1611`, `inf-20100413-1953`, `inf-20100414`, `inf-20100415` and `inf-20100630-1340`.
+   `inf-20100313`, `inf-20100316`, `inf-20100320`, `inf-20100321`, `inf-20100325-1640`, `inf-20100327`, `inf-20100330-1611`, `inf-20100413-1953`, `inf-20100414`, `inf-20100415`, `inf-20100420`, `inf-20100607`, `inf-20100608` and `inf-20100630-1340`.
    Without the scripts: `java -jar TheWellosInfdevClientPatcher.jar <original jar> <output folder>`.
 2. Install the patched jar with one of the launchers:
    - **BetaCraft**: copy `<build>-mp.jar` to `%APPDATA%\.betacraft\versions` and `<build>-mp.json` and
@@ -35,7 +42,7 @@ account is verified with Mojang. The server must run the same Infdev build as yo
 
 ## Notes
 
-- Builds 20100227, 20100313, 20100316, 20100320, 20100321, 20100325-1640, 20100327, 20100330-1611, 20100413-1953, 20100414 and 20100415 keep the inventory on the client. The server saves what the client reports and
+- Builds 20100227, 20100313, 20100316, 20100320, 20100321, 20100325-1640, 20100327, 20100330-1611, 20100413-1953, 20100414, 20100415, 20100420, 20100607 and 20100608 keep the inventory on the client. The server saves what the client reports and
   gives it back at the next login. In build 20100630-1340 the server checks the inventory (invalid items, stack sizes,
   sudden gains).
 - Chests and furnaces (builds 20100320 and later) are locked while one player uses them.
@@ -44,7 +51,7 @@ account is verified with Mojang. The server must run the same Infdev build as yo
 - Two game windows on one computer share one mouse. A window without the keyboard focus lets go of the mouse and reads
   no mouse movement (the patcher replaces the game's `Mouse.getDX()` and `Mouse.getDY()` calls in its renderer by
   `TWMouse.dx()` and `TWMouse.dy()`), so the camera of the other window does not turn. This holds for every build.
-- If the game window hangs while connected (build 227, 313, 316, 320, 321, 325-1640, 327, 330-1611, 413-1953, 414 or 415), it writes a report to
+- If the game window hangs while connected (build 227, 313, 316, 320, 321, 325-1640, 327, 330-1611, 413-1953, 414, 415, 420, 607 or 608), it writes a report to
   `%USERPROFILE%\.thewellodev\freeze-<time>.txt`.
 
 ## BetaCraft proxy and skins

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.5.0
+
+### Added
+
+- **Support for `inf-20100608`** (protocol 24): server bridge, client mod, plugin API (`api608`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 607 and every older build. The build fixes bugs of 607 and renames nothing.
+- **Support for `inf-20100607`** (protocol 23): server bridge, client mod, plugin API (`api607`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 420 and every older build. Doors, ladders and signs; the text of signs is kept by
+  the server and shared between the players.
+- **Support for `inf-20100420`** (protocol 22): server bridge, client mod, plugin API (`api420`), the four bundled plugins, the
+  BetaCraft files and the world takeover from 415 and every older build. The names are those of 415; the generator is faster and the
+  stand-in chunk provider answers the new boolean method of the game. The client patcher tells the two builds apart by the checksum
+  of the world class.
+
+### Fixed
+
+- **Cracks of other players** (builds 20100227 to 20100608): the entry of 2.4.0 did not show them for a player who was not
+  looking at a block within reach. They are now drawn in every frame, after the water, with the camera of the own crack.
+- **A door that another player opens or closes now changes on the screen** (builds 20100316 to 20100607, and every other change
+  of block data alone): the client set the data but did not tell its renderer.
+- **No sounds** when a patched client was started with its own launcher (`TWxxxLauncher`). The game asks
+  `http://www.minecraft.net/resources/` for its sound list, which no longer answers. The launchers send exactly those requests through
+  the proxy of BetaCraft (`betacraft.uk:11702`); every other request goes the usual way. `-Dthewellodev.nosoundproxy=true` switches
+  it off. A start through BetaCraft already uses the proxy of the `.info` file.
+
 ## 2.4.0
 
 ### Added

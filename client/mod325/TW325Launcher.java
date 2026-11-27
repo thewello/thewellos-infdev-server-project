@@ -93,6 +93,7 @@ public class TW325Launcher implements AppletStub {
             killer.start();
         }
         frame.setVisible(true);
+        TWSounds.install(); // the sound list comes from BetaCraft's proxy (see TWSounds)
         applet.init();
         applet.start();
     }

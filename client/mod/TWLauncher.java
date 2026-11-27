@@ -80,6 +80,7 @@ public class TWLauncher implements AppletStub {
             frame.setFocusableWindowState(false);
         }
         frame.setVisible(true);
+        TWSounds.install(); // the sound list comes from BetaCraft's proxy (see TWSounds)
         applet.init();
         applet.start();
     }
